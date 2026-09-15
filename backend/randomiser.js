@@ -1,34 +1,25 @@
-/**
- * AWCA Lottery - /randomiser endpoint
- * Returns a random winner from active subscribers.
- *
- * Placeholder: replace in-memory list with your real data store.
- */
-
-const mockSubscribers = [
-  { name: "Test User 1", email: "test1@example.com" },
-  { name: "Test User 2", email: "test2@example.com" }
-];
+import { kv } from "@vercel/kv";
+import { getStats, getRandomWinner } from "./subscribers.js";
 
 export async function randomiser() {
-  if (!mockSubscribers.length) {
-    return new Response(
-      JSON.stringify({ winner: null, message: "No subscribers available." }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" }
-      }
-    );
+  const stats = await getStats();
+  const subscribers = await kv.get("subscribers") || [];
+
+  let winner = null;
+  let index = null;
+
+  if (subscribers.length > 0) {
+    index = Math.floor(Math.random() * subscribers.length);
+    winner = subscribers[index];
   }
 
-  const idx = Math.floor(Math.random() * mockSubscribers.length);
-  const winner = mockSubscribers[idx];
-
-  return new Response(
-    JSON.stringify({ winner }),
-    {
-      status: 200,
-      headers: { "Content-Type": "application/json" }
-    }
-  );
+  return new Response(JSON.stringify({
+    stats,
+    winner,
+    index,
+    subscribers
+  }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" }
+  });
 }

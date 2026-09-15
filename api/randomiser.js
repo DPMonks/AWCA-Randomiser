@@ -7,7 +7,7 @@ export default async function handler(req, res) {
     res.status(response.status).setHeader("Content-Type", "application/json");
     res.send(text);
   } catch (err) {
-    console.error("Randomiser function error:", err);
+    console.error("Randomiser error:", err);
     res.status(500).json({ error: "Server error", details: err.message });
   }
 }

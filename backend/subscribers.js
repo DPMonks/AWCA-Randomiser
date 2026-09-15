@@ -26,7 +26,7 @@ export async function getStats() {
   const existing = (await kv.get("subscribers")) || [];
   const totalEntries = existing.length;
   const estimatedAmount = totalEntries * 1.25;
-  return { totalEntries, estimatedAmount, pricePerSubscriber: 1.25 };
+  return { totalEntries, estimatedAmount };
 }
 
 export async function getRandomWinner() {
