@@ -1,9 +1,3 @@
 {
-  "cron": [
-    {
-      "path": "/api/scheduled-draw",
-      "schedule": "0 20 1 * *",
-      "timezone": "Europe/London"
-    }
-  ]
+  "version": 2
 }
