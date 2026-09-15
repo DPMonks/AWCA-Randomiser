@@ -2,8 +2,19 @@ import { API_BASE } from "./config.js";
 
 const drawBtn = document.getElementById("drawBtn");
 const resultDiv = document.getElementById("result");
+const totalEntriesSpan = document.getElementById("totalEntries");
+const estimatedAmountSpan = document.getElementById("estimatedAmount");
+const ratePerSubscriberSpan = document.getElementById("ratePerSubscriber");
 
-drawBtn.addEventListener("click", async () => {
+function updateStats(stats) {
+  if (!stats) return;
+
+  totalEntriesSpan.textContent = stats.totalEntries ?? 0;
+  estimatedAmountSpan.textContent = (stats.estimatedAmount ?? 0).toFixed(2);
+  ratePerSubscriberSpan.textContent = (stats.pricePerSubscriber ?? 1.25).toFixed(2);
+}
+
+async function fetchRandomiser() {
   resultDiv.textContent = "Drawing winner...";
 
   try {
@@ -20,6 +31,8 @@ drawBtn.addEventListener("click", async () => {
 
     const data = await res.json();
 
+    updateStats(data.stats);
+
     if (!data || !data.winner) {
       resultDiv.textContent = "No winner returned from backend.";
       return;
@@ -31,4 +44,6 @@ drawBtn.addEventListener("click", async () => {
     console.error("Randomiser error:", err);
     resultDiv.textContent = "Error connecting to randomiser endpoint.";
   }
-});
+}
+
+drawBtn.addEventListener("click", fetchRandomiser);

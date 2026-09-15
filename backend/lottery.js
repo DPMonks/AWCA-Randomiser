@@ -1,3 +1,5 @@
+import { addSubscriber, cancelSubscriber, getStats } from "./subscribers.js";
+
 /**
  * AWCA Lottery - /lottery endpoint
  * Receives events from Wix automations:
@@ -8,22 +10,31 @@
 export async function lottery(request) {
   const body = await request.json();
 
-  const { eventType, subscriber } = body;
-  const { email, plan, paymentConfirmed } = subscriber || {};
+  const { eventType, subscriber } = body || {};
+  if (!eventType || !subscriber) {
+    return new Response(
+      JSON.stringify({ error: "Invalid payload" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
-  console.log("AWCA Lottery event received:", {
-    eventType,
-    email,
-    plan,
-    paymentConfirmed
-  });
+  console.log("AWCA Lottery event received:", { eventType, subscriber });
+
+  if (eventType === "subscribed") {
+    addSubscriber(subscriber);
+  } else if (eventType === "canceled") {
+    cancelSubscriber(subscriber);
+  } else {
+    console.log("Unknown eventType:", eventType);
+  }
+
+  const stats = getStats();
 
   return new Response(
     JSON.stringify({
-      status: "received",
+      status: "processed",
       eventType,
-      email,
-      plan
+      stats
     }),
     {
       status: 200,

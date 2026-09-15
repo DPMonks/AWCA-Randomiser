@@ -8,7 +8,13 @@
 <body>
   <div class="container">
     <h1>AWCA Lottery Randomiser</h1>
-    <p>Press the button below to draw a winner from active subscribers.</p>
+    <p>Draw a winner from active AWCA Lottery subscribers and view current stats.</p>
+
+    <div class="stats">
+      <p>Total entries: <span id="totalEntries">0</span></p>
+      <p>Estimated monthly amount: £<span id="estimatedAmount">0.00</span></p>
+      <p>Rate per subscriber: £<span id="ratePerSubscriber">1.25</span></p>
+    </div>
 
     <button id="drawBtn">Draw Winner</button>
     <div id="result" class="result"></div>

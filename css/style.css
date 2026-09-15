@@ -21,8 +21,20 @@ h1 {
 }
 
 p {
-  margin-bottom: 24px;
+  margin-bottom: 8px;
   color: #c0c4d0;
+}
+
+.stats {
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #151823;
+  border: 1px solid #1f2937;
+}
+
+.stats p {
+  margin: 4px 0;
 }
 
 button#drawBtn {
