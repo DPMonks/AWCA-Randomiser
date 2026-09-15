@@ -1,25 +1,154 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>AWCA Lottery Randomiser</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8" />
+  <title>AWCA Lottery</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="container">
-    <h1>AWCA Lottery Randomiser</h1>
-    <p>Draw a winner from active AWCA Lottery subscribers and view current stats.</p>
-
-    <div class="stats">
-      <p>Total entries: <span id="totalEntries">0</span></p>
-      <p>Estimated monthly amount: £<span id="estimatedAmount">0.00</span></p>
-      <p>Rate per subscriber: £<span id="ratePerSubscriber">1.25</span></p>
+  <header class="awca-header">
+    <div class="awca-header-inner">
+      <div class="awca-logo-area">
+        <h1>AWCA Lottery</h1>
+        <p>Transparent, automated community draws for Alconbury Weald.</p>
+      </div>
+      <nav class="awca-nav">
+        <a href="#dashboard">Dashboard</a>
+        <a href="#how-it-works">How it works</a>
+        <a href="#community">Community impact</a>
+        <a href="#governance">Governance</a>
+      </nav>
     </div>
+  </header>
 
-    <button id="drawBtn">Draw Winner</button>
-    <div id="result" class="result"></div>
-  </div>
+  <main>
+    <!-- Live Dashboard -->
+    <section id="dashboard" class="awca-section awca-dashboard">
+      <h2>Live Lottery Dashboard</h2>
+      <div class="awca-dashboard-grid">
+        <div class="awca-card">
+          <h3>Total Entries</h3>
+          <p id="total-entries">–</p>
+        </div>
+        <div class="awca-card">
+          <h3>Total Winnings Available</h3>
+          <p id="total-winnings">–</p>
+        </div>
+        <div class="awca-card">
+          <h3>Next Draw</h3>
+          <p id="next-draw">Scheduled monthly</p>
+        </div>
+        <div class="awca-card">
+          <h3>Last Winner</h3>
+          <p id="last-winner-name">–</p>
+          <p id="last-winner-email" class="awca-subtext">–</p>
+        </div>
+      </div>
 
-  <script type="module" src="js/app.js"></script>
+      <!-- Ball Machine + Draw -->
+      <div class="awca-machine-wrapper">
+        <div class="awca-machine">
+          <div class="awca-machine-glass">
+            <div class="awca-balls" id="balls-container">
+              <!-- balls rendered by JS -->
+            </div>
+          </div>
+          <div class="awca-machine-base"></div>
+          <div class="awca-machine-chute" id="machine-chute">
+            <span id="drawn-number">–</span>
+          </div>
+        </div>
+
+        <div class="awca-draw-panel">
+          <button id="draw-button">Draw Winner</button>
+          <div class="awca-draw-result">
+            <h3>Current Draw Result</h3>
+            <p id="winner-name">–</p>
+            <p id="winner-email" class="awca-subtext">–</p>
+            <p id="winner-time" class="awca-subtext">–</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how-it-works" class="awca-section">
+      <h2>How the AWCA Lottery works</h2>
+      <div class="awca-text-grid">
+        <div>
+          <h3>Entries</h3>
+          <p>
+            Each active AWCA Lottery subscription counts as one entry in the draw.
+            Cancelled subscriptions are removed automatically.
+          </p>
+        </div>
+        <div>
+          <h3>Total winnings available</h3>
+          <p>
+            Total winnings available are calculated from live entries and updated
+            automatically by the backend system.
+          </p>
+        </div>
+        <div>
+          <h3>Random selection</h3>
+          <p>
+            A secure randomiser selects a winning entry. Duplicate email addresses
+            are handled fairly using aliases.
+          </p>
+        </div>
+        <div>
+          <h3>Persistent records</h3>
+          <p>
+            Entries are stored in a persistent data store, ensuring accurate
+            totals and reliable draw history.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Community impact -->
+    <section id="community" class="awca-section awca-section-alt">
+      <h2>Community impact</h2>
+      <p>
+        The AWCA Lottery supports community initiatives across Alconbury Weald.
+        Funds raised contribute to local projects, events and awards.
+      </p>
+      <div class="awca-impact-grid">
+        <div class="awca-card">
+          <h3>Previous winners</h3>
+          <p>Highlight recent winners and their stories.</p>
+        </div>
+        <div class="awca-card">
+          <h3>Projects supported</h3>
+          <p>Showcase community projects funded by the lottery.</p>
+        </div>
+        <div class="awca-card">
+          <h3>Community updates</h3>
+          <p>Share news, photos and upcoming events.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Governance & compliance -->
+    <section id="governance" class="awca-section">
+      <h2>Governance and compliance</h2>
+      <ul class="awca-list">
+        <li>Clear Terms &amp; Conditions for participation.</li>
+        <li>Privacy and data handling in line with UK standards.</li>
+        <li>Responsible participation guidance.</li>
+        <li>Transparent draw process and audit trail.</li>
+      </ul>
+      <p class="awca-subtext">
+        For enquiries, please contact the AWCA team via the Alconbury Weald website.
+      </p>
+    </section>
+  </main>
+
+  <footer class="awca-footer">
+    <p>&copy; AWCA Lottery – Alconbury Weald Community.</p>
+  </footer>
+
+  <script src="main.js"></script>
 </body>
 </html>

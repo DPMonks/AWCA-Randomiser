@@ -1,0 +1,241 @@
+:root {
+  --awca-bg: #f5f7fa;
+  --awca-bg-alt: #e9edf3;
+  --awca-primary: #2b6c3f;   /* adjust to match site */
+  --awca-secondary: #1f3b5c; /* adjust to match site */
+  --awca-card-bg: #ffffff;
+  --awca-text-main: #1a1a1a;
+  --awca-text-sub: #555555;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--awca-bg);
+  color: var(--awca-text-main);
+}
+
+/* Header */
+
+.awca-header {
+  background: var(--awca-secondary);
+  color: #ffffff;
+  padding: 1rem 0;
+}
+
+.awca-header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0 1rem;
+}
+
+.awca-logo-area h1 {
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.awca-logo-area p {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.awca-nav a {
+  color: #ffffff;
+  text-decoration: none;
+  margin-left: 1rem;
+  font-size: 0.95rem;
+}
+
+.awca-nav a:hover {
+  text-decoration: underline;
+}
+
+/* Sections */
+
+.awca-section {
+  max-width: 1100px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.awca-section h2 {
+  font-size: 1.6rem;
+  margin-bottom: 1rem;
+  color: var(--awca-secondary);
+}
+
+.awca-section-alt {
+  background: var(--awca-bg-alt);
+  padding: 2rem 1rem;
+  border-radius: 8px;
+}
+
+/* Dashboard */
+
+.awca-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.awca-card {
+  background: var(--awca-card-bg);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.awca-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+  color: var(--awca-primary);
+}
+
+.awca-card p {
+  font-size: 1rem;
+}
+
+.awca-subtext {
+  font-size: 0.85rem;
+  color: var(--awca-text-sub);
+}
+
+/* Machine + Draw */
+
+.awca-machine-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  align-items: center;
+}
+
+.awca-machine {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  margin-bottom: 1rem;
+}
+
+.awca-machine-glass {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 4px solid var(--awca-primary);
+  background: radial-gradient(circle at 30% 30%, #ffffff, #dfe6ee);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.awca-balls {
+  position: relative;
+  width: 80%;
+  height: 80%;
+}
+
+.awca-ball {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--awca-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--awca-secondary);
+}
+
+.awca-machine-base {
+  position: absolute;
+  bottom: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 24px;
+  background: var(--awca-secondary);
+  border-radius: 12px;
+}
+
+.awca-machine-chute {
+  position: absolute;
+  bottom: -10px;
+  right: 10px;
+  width: 60px;
+  height: 40px;
+  background: var(--awca-primary);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.awca-draw-panel {
+  flex: 1;
+  min-width: 260px;
+}
+
+#draw-button {
+  background: var(--awca-primary);
+  color: #ffffff;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 999px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+#draw-button:hover {
+  background: #245a34;
+}
+
+.awca-draw-result {
+  margin-top: 1rem;
+}
+
+/* Text grids */
+
+.awca-text-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.awca-impact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+/* Governance list */
+
+.awca-list {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.awca-footer {
+  margin-top: 3rem;
+  padding: 1rem;
+  text-align: center;
+  background: var(--awca-secondary);
+  color: #ffffff;
+  font-size: 0.9rem;
+}
