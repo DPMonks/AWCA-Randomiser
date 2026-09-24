@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AWCA Lottery</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="AWCA lottery for Alconbury Weald. Active entries, prize pot, and the last winner." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="awca-header">
+  <div class="awca-header-inner">
+    <img class="awca-logo" src="AWCA%20Logo.jpg" alt="AWCA logo" />
+    <div>
+      <h1>AWCA Lottery</h1>
+      <p>Official monthly community draw for Alconbury Weald</p>
+    </div>
+  </div>
+</header>
+
+<div class="awca-notice" id="notice" hidden></div>
+
+<main class="awca-main">
+  <section class="awca-panel">
+    <h2>Lottery Dashboard</h2>
+
+    <div class="awca-stats">
+      <div class="awca-stat">
+        <h3>Total Entries</h3>
+        <p id="total-entries">Loading</p>
+        <p class="awca-subtext">Active lottery subscribers</p>
+      </div>
+
+      <div class="awca-stat">
+        <h3>Prize Pot</h3>
+        <p id="total-winnings">Loading</p>
+        <p class="awca-subtext">£1.25 from each £2.50 entry</p>
+      </div>
+
+      <div class="awca-stat">
+        <h3>Next Draw</h3>
+        <p id="next-draw">Loading</p>
+        <p id="draw-countdown" class="awca-subtext"></p>
+      </div>
+
+      <div class="awca-stat">
+        <h3>Last Winner</h3>
+        <p id="last-winner-name">Loading</p>
+        <p id="last-winner-meta" class="awca-subtext">Loading</p>
+      </div>
+    </div>
+
+    <div class="awca-result">
+      <h3>Past winners</h3>
+      <label class="awca-subtext" for="past-winners">Choose a month</label>
+      <select id="past-winners"></select>
+      <p id="past-winner-detail" class="awca-subtext"></p>
+    </div>
+  </section>
+
+  <section class="awca-3d-panel">
+    <div class="awca-drum-head">
+      <h2>Lottery drum</h2>
+      <button id="replay-draw" class="awca-secondary-btn" type="button" hidden>Replay draw</button>
+    </div>
+    <div class="awca-stage">
+      <canvas id="lotteryCanvas" aria-label="Lottery drum. Each ball shows an entry reference."></canvas>
+      <p id="drum-more" class="awca-more" hidden></p>
+      <div id="winner-card" class="awca-winner-card" hidden>
+        <p class="awca-winner-kicker">Winner</p>
+        <p id="winner-card-label"></p>
+      </div>
+      <div id="confetti" class="awca-confetti" aria-hidden="true"></div>
+    </div>
+    <p id="example-notice" class="awca-subtext" hidden>Example data only. Nothing here is a real draw.</p>
+    <div id="demo-controls" class="awca-demo" hidden>
+      <label for="entry-count">Number of entries <span id="entry-count-value">10</span></label>
+      <input id="entry-count" type="range" min="1" max="150" value="10" />
+      <button id="play-draw" class="awca-draw-btn" type="button">Play draw</button>
+    </div>
+  </section>
+</main>
+
+<section class="awca-admin-wrap">
+  <div class="awca-panel">
+    <h2>Member status</h2>
+        <p class="awca-subtext">Sign in to see each member's full name beside their entry reference. Draw Winner is the manual fallback if the 20:00 UK draw did not run. The public page shows initials and the entry reference only.</p>
+
+    <form id="admin-form" class="awca-admin-form">
+      <label for="admin-password">Admin password</label>
+      <input id="admin-password" type="password" autocomplete="current-password" />
+      <button type="submit" class="awca-draw-btn">Unlock</button>
+    </form>
+    <p id="admin-message" class="awca-subtext" hidden></p>
+
+    <div id="admin-tools" hidden>
+      <div class="awca-admin-actions">
+        <button id="draw-button" class="awca-draw-btn" type="button">Draw Winner</button>
+        <button id="lock-button" class="awca-secondary-btn" type="button">Lock</button>
+      </div>
+      <p id="draw-result" class="awca-result-line">No draw yet this session.</p>
+      <div class="awca-result">
+        <h3>Official draw record</h3>
+        <p class="awca-subtext">Full names are loaded live for the committee. They are not saved with the draw.</p>
+        <ul id="admin-history" class="awca-history"></ul>
+      </div>
+      <div class="awca-table-wrap">
+        <table class="awca-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Entry reference</th>
+              <th>Status</th>
+              <th>Start date</th>
+              <th>End or cancel date</th>
+            </tr>
+          </thead>
+          <tbody id="member-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="awca-footer">
+  <p>&copy; AWCA Lottery, Alconbury Weald Community</p>
+</footer>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+<script src="main.js"></script>
+<script type="module" src="drum.js"></script>
+</body>
+</html>

@@ -1,13 +1,10 @@
 {
   "name": "awca-randomiser",
-  "version": "1.0.0",
-  "description": "AWCA Lottery Randomiser deployment on Vercel",
-  "main": "index.html",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AWCA lottery page. Entrants come from the Wix Pricing Plans API.",
   "scripts": {
-    "start": "vercel dev"
-  },
-  "dependencies": {
-    "@vercel/kv": "^3.0.0",
-    "@vercel/node": "^3.0.0"
+    "test": "node --test"
   }
 }
