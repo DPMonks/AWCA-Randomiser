@@ -17,7 +17,51 @@ body {
   background: var(--awca-secondary);
   color: #fff;
   padding: 1.5rem;
-  text-align: center;
+}
+
+.awca-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: left;
+}
+
+.awca-header h1,
+.awca-header p {
+  margin: 0;
+}
+
+.awca-header p {
+  margin-top: 0.35rem;
+}
+
+.awca-logo {
+  height: 72px;
+  width: auto;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.awca-notice {
+  max-width: 1400px;
+  margin: 1rem auto 0;
+  padding: 0 1rem;
+}
+
+.awca-banner {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+}
+
+.awca-banner.error {
+  background: #fde8e8;
+  color: #7f1d1d;
+}
+
+.awca-banner.mock {
+  background: #fff6d8;
+  color: #5c4a12;
 }
 
 .awca-main {
@@ -29,11 +73,18 @@ body {
   padding: 0 1rem;
 }
 
-.awca-panel, .awca-3d-panel {
+.awca-admin-wrap {
+  max-width: 1400px;
+  margin: 0 auto 2rem;
+  padding: 0 1rem;
+}
+
+.awca-panel,
+.awca-3d-panel {
   background: #fff;
   padding: 2rem;
   border-radius: 12px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
 .awca-stats {
@@ -48,27 +99,96 @@ body {
   border-radius: 8px;
 }
 
-.awca-draw-btn {
-  margin-top: 1.5rem;
-  padding: 1rem 2rem;
-  background: var(--awca-primary);
-  color: #fff;
+.awca-stat h3,
+.awca-result h3 {
+  margin-top: 0;
+}
+
+.awca-draw-btn,
+.awca-secondary-btn {
+  margin-top: 0;
+  padding: 0.85rem 1.4rem;
   border: none;
   border-radius: 999px;
   cursor: pointer;
   font-size: 1rem;
 }
 
+.awca-draw-btn {
+  background: var(--awca-primary);
+  color: #fff;
+}
+
 .awca-draw-btn:hover {
   background: #245a34;
+}
+
+.awca-draw-btn:disabled {
+  background: #8aa894;
+  cursor: wait;
+}
+
+.awca-secondary-btn {
+  background: #e6ebf2;
+  color: var(--awca-secondary);
 }
 
 .awca-result {
   margin-top: 1.5rem;
 }
 
+.awca-result-line {
+  min-height: 1.4rem;
+}
+
 .awca-subtext {
   color: var(--awca-sub);
+  font-size: 0.85rem;
+}
+
+.awca-history {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.awca-history li {
+  margin: 0.35rem 0;
+}
+
+.awca-admin-form,
+.awca-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1rem 0;
+}
+
+.awca-admin-form input {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #cfd6e0;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.awca-table-wrap {
+  overflow-x: auto;
+}
+
+.awca-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.awca-table th,
+.awca-table td {
+  text-align: left;
+  padding: 0.65rem 0.5rem;
+  border-bottom: 1px solid #e6ebf2;
+}
+
+.awca-table th {
+  color: var(--awca-secondary);
   font-size: 0.85rem;
 }
 
@@ -77,4 +197,26 @@ body {
   height: 500px;
   background: #e9edf3;
   border-radius: 12px;
+}
+
+.awca-footer {
+  text-align: center;
+  color: var(--awca-sub);
+  padding: 1rem;
+}
+
+@media (max-width: 800px) {
+  .awca-main,
+  .awca-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .awca-header-inner {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  #lotteryCanvas {
+    height: 320px;
+  }
 }

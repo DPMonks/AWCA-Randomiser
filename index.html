@@ -4,70 +4,104 @@
   <meta charset="UTF-8" />
   <title>AWCA Lottery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="AWCA lottery for Alconbury Weald. Active entries, prize pot, and the last winner." />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
 <header class="awca-header">
   <div class="awca-header-inner">
-    <h1>AWCA Lottery</h1>
-    <p>Official monthly community draw for Alconbury Weald</p>
+    <img class="awca-logo" src="public/AWCA%20Logo.jpg" alt="AWCA logo" />
+    <div>
+      <h1>AWCA Lottery</h1>
+      <p>Official monthly community draw for Alconbury Weald</p>
+    </div>
   </div>
 </header>
 
-<main class="awca-main">
+<div class="awca-notice" id="notice" hidden></div>
 
-  <!-- LEFT: Dashboard -->
+<main class="awca-main">
   <section class="awca-panel">
     <h2>Lottery Dashboard</h2>
 
     <div class="awca-stats">
       <div class="awca-stat">
         <h3>Total Entries</h3>
-        <p id="total-entries">–</p>
+        <p id="total-entries">Loading</p>
+        <p class="awca-subtext">Active lottery subscribers</p>
       </div>
 
       <div class="awca-stat">
-        <h3>Total Winnings Available</h3>
-        <p id="total-winnings">–</p>
+        <h3>Prize Pot</h3>
+        <p id="total-winnings">Loading</p>
+        <p class="awca-subtext">£1.25 from each £2.50 entry</p>
       </div>
 
       <div class="awca-stat">
         <h3>Next Draw</h3>
-        <p id="next-draw">1st of next month @ 20:00 UK time</p>
+        <p id="next-draw">Loading</p>
       </div>
 
       <div class="awca-stat">
         <h3>Last Winner</h3>
-        <p id="last-winner-name">–</p>
-        <p id="last-winner-email" class="awca-subtext">–</p>
+        <p id="last-winner-name">Loading</p>
+        <p id="last-winner-meta" class="awca-subtext">Loading</p>
       </div>
     </div>
 
-    <button id="draw-button" class="awca-draw-btn">Draw Winner</button>
-
     <div class="awca-result">
-      <h3>Draw Result</h3>
-      <p id="winner-name">–</p>
-      <p id="winner-email" class="awca-subtext">–</p>
-      <p id="winner-time" class="awca-subtext">–</p>
+      <h3>Past draws</h3>
+      <ul id="history" class="awca-history"></ul>
     </div>
   </section>
 
-  <!-- RIGHT: 3D Lottery Machine -->
   <section class="awca-3d-panel">
     <h2>3D Lottery Machine</h2>
     <canvas id="lotteryCanvas"></canvas>
   </section>
-
 </main>
 
+<section class="awca-admin-wrap">
+  <div class="awca-panel">
+    <h2>Member status</h2>
+    <p class="awca-subtext">Sign in to see who is still subscribed, and to draw a winner. Names stay on this admin view.</p>
+
+    <form id="admin-form" class="awca-admin-form">
+      <label for="admin-password">Admin password</label>
+      <input id="admin-password" type="password" autocomplete="current-password" />
+      <button type="submit" class="awca-draw-btn">Unlock</button>
+    </form>
+    <p id="admin-message" class="awca-subtext" hidden></p>
+
+    <div id="admin-tools" hidden>
+      <div class="awca-admin-actions">
+        <button id="draw-button" class="awca-draw-btn" type="button">Draw Winner</button>
+        <button id="lock-button" class="awca-secondary-btn" type="button">Lock</button>
+      </div>
+      <p id="draw-result" class="awca-result-line">No draw yet this session.</p>
+      <div class="awca-table-wrap">
+        <table class="awca-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Start date</th>
+              <th>End or cancel date</th>
+            </tr>
+          </thead>
+          <tbody id="member-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
 <footer class="awca-footer">
-  <p>&copy; AWCA Lottery — Alconbury Weald Community</p>
+  <p>&copy; AWCA Lottery, Alconbury Weald Community</p>
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="main.js"></script>
-
 </body>
 </html>
