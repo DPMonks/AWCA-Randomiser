@@ -674,6 +674,36 @@ test("admin token accepts the right password only", () => {
   assert.equal(verifyToken(token, "secret", 1_000 + 13 * 60 * 60 * 1000), false);
 });
 
+test("balls stay inside the drum after a fast mix", async () => {
+  const { CONTAIN_LIMIT, containInPlace, simulateSteps } = await import("../public/drumPhysics.js");
+  const outside = { x: 3, y: -1, z: 0.4 };
+  const velocity = { x: 12, y: -4, z: 2 };
+  assert.equal(containInPlace(outside, velocity), true);
+  assert.ok(Math.hypot(outside.x, outside.y, outside.z) <= CONTAIN_LIMIT + 1e-9);
+  const radial = outside.x * velocity.x + outside.y * velocity.y + outside.z * velocity.z;
+  assert.ok(radial < 0);
+
+  function mulberry32(seed) {
+    let state = seed >>> 0;
+    return () => {
+      state = (state + 0x6d2b79f5) | 0;
+      let value = Math.imul(state ^ (state >>> 15), 1 | state);
+      value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  for (const energy of [1, 2.4]) {
+    const result = simulateSteps({ count: 40, steps: 420, energy, speed: 12, rand: mulberry32(energy === 1 ? 7 : 11) });
+    for (const ball of result.balls) {
+      assert.ok(Math.hypot(ball.x, ball.y, ball.z) <= CONTAIN_LIMIT + 1e-6);
+    }
+    assert.ok(result.maxRadius <= CONTAIN_LIMIT + 1e-6);
+    assert.ok(result.maxY > 0.7, `upper balls at energy ${energy}: ${result.maxY}`);
+    assert.ok(result.minY < -0.7, `lower balls at energy ${energy}: ${result.minY}`);
+  }
+});
+
 test("the drum source has no gold ring mesh", async () => {
   const source = await readFile(new URL("../public/drum.js", import.meta.url), "utf8");
   assert.equal(/TorusGeometry|RingGeometry/.test(source), false);

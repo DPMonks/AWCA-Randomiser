@@ -1,9 +1,16 @@
 import * as THREE from "three";
-import { Body, SAPBroadphase, Sphere, Vec3, World } from "cannon-es";
+import { Body, ContactMaterial, Material, SAPBroadphase, Sphere, Vec3, World } from "cannon-es";
+import {
+  addKick,
+  BALL_RADIUS,
+  containInPlace,
+  DRUM_RADIUS,
+  stirInPlace,
+  SUBSTEPS,
+} from "./drumPhysics.js";
 
 const MAX_BALLS = 100;
-const BALL_RADIUS = 0.13;
-const DRUM_RADIUS = 1.42;
+const DRAW_MIX_MS = 3600;
 
 function reducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -41,10 +48,15 @@ function labelTexture(text, color, lines) {
 }
 
 function spawnPoint(index) {
-  const layer = Math.floor(index / 8);
   const angle = index * 2.399963;
-  const ring = 0.22 + (index % 4) * 0.22;
-  return new Vec3(Math.cos(angle) * ring, -0.85 + layer * 0.22, Math.sin(angle) * ring);
+  const radius = 0.16 + (index % 5) * 0.14;
+  const pos = {
+    x: Math.cos(angle) * radius,
+    y: -0.72 + (index % 7) * 0.22,
+    z: Math.sin(angle) * radius,
+  };
+  containInPlace(pos, { x: 0, y: 0, z: 0 });
+  return new Vec3(pos.x, pos.y, pos.z);
 }
 
 export function mountDrum(canvas, hooks = {}) {
@@ -120,62 +132,79 @@ export function mountDrum(canvas, hooks = {}) {
   drum.add(shell, rimGlass);
   scene.add(chute, stand, hole);
 
-  const world = new World({ gravity: new Vec3(0, -3.2, 0) });
+  const world = new World({ gravity: new Vec3(0, 0, 0) });
   world.broadphase = new SAPBroadphase(world);
   world.allowSleep = false;
-  world.solver.iterations = 6;
+  world.solver.iterations = 4;
+  const ballMaterial = new Material("ball");
+  world.addContactMaterial(new ContactMaterial(ballMaterial, ballMaterial, {
+    restitution: 0.92,
+    friction: 0.03,
+  }));
 
   const balls = new Map();
-  const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 20, 16);
-  let spin = 0.35;
+  const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 18, 14);
+  const labelGeo = new THREE.CircleGeometry(0.105, 20);
+  let spin = 0.45;
   let phase = "idle";
   let phaseUntil = 0;
+  let spinStarted = 0;
   let release = null;
   let releaseStart = 0;
   let releaseFrom = null;
   let shownRefs = [];
   let resizeObserver;
 
-  function contain(body) {
-    const distance = body.position.length();
-    const limit = DRUM_RADIUS - BALL_RADIUS - 0.04;
-    if (distance <= limit || distance === 0) return;
-    const nx = body.position.x / distance;
-    const ny = body.position.y / distance;
-    const nz = body.position.z / distance;
-    body.position.set(nx * limit, ny * limit, nz * limit);
-    const outward = body.velocity.x * nx + body.velocity.y * ny + body.velocity.z * nz;
-    if (outward > 0) {
-      body.velocity.x -= 1.7 * outward * nx;
-      body.velocity.y -= 1.7 * outward * ny;
-      body.velocity.z -= 1.7 * outward * nz;
-    }
+  function capAngular(body, energy) {
+    const wx = body.angularVelocity.x;
+    const wy = body.angularVelocity.y;
+    const wz = body.angularVelocity.z;
+    const speed = Math.hypot(wx, wy, wz);
+    const cap = energy > 1.35 ? 7 : 2.6;
+    if (speed <= cap || speed === 0) return;
+    const scale = cap / speed;
+    body.angularVelocity.set(wx * scale, wy * scale, wz * scale);
   }
 
   function makeBall(ref, index) {
     const color = colorFor(ref);
     const material = new THREE.MeshPhongMaterial({ color, shininess: 40 });
     const mesh = new THREE.Mesh(ballGeo, material);
-    const sprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: labelTexture(ref, color), transparent: true, depthWrite: false })
+    const texture = labelTexture(ref, color);
+    const label = new THREE.Mesh(
+      labelGeo,
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false })
     );
-    sprite.scale.set(0.46, 0.46, 1);
-    sprite.position.z = BALL_RADIUS + 0.01;
+    label.position.z = 0.07;
+    label.renderOrder = 2;
+    mesh.add(label);
     const group = new THREE.Group();
-    group.add(mesh, sprite);
+    group.add(mesh);
     group.scale.setScalar(reduced ? 1 : 0.01);
     scene.add(group);
     const point = spawnPoint(index);
     const body = new Body({
       mass: 1,
+      material: ballMaterial,
       shape: new Sphere(BALL_RADIUS),
       position: point,
-      linearDamping: 0.18,
-      angularDamping: 0.2,
+      linearDamping: 0.01,
+      angularDamping: 0.04,
     });
-    body.velocity.set((Math.random() - 0.5) * 1.4, Math.random() * 1.2, (Math.random() - 0.5) * 1.4);
+    body.velocity.set((Math.random() - 0.5) * 2.4, 1.2 + Math.random() * 1.6, (Math.random() - 0.5) * 2.4);
+    body.angularVelocity.set((Math.random() - 0.5) * 3.2, (Math.random() - 0.5) * 3.2, (Math.random() - 0.5) * 3.2);
     world.addBody(body);
-    const ball = { ref, group, mesh, sprite, body, appear: performance.now(), removeAt: 0, texture: sprite.material.map };
+    const ball = {
+      ref,
+      group,
+      mesh,
+      label,
+      body,
+      appear: performance.now(),
+      removeAt: 0,
+      texture,
+      nextKick: performance.now() + Math.random() * 600,
+    };
     balls.set(ref, ball);
     return ball;
   }
@@ -190,8 +219,8 @@ export function mountDrum(canvas, hooks = {}) {
     world.removeBody(ball.body);
     scene.remove(ball.group);
     ball.mesh.material.dispose();
-    ball.sprite.material.map?.dispose();
-    ball.sprite.material.dispose();
+    ball.label.material.map?.dispose();
+    ball.label.material.dispose();
     balls.delete(ball.ref);
   }
 
@@ -218,8 +247,19 @@ export function mountDrum(canvas, hooks = {}) {
   }
 
   function faceCamera(ball) {
+    ball.mesh.quaternion.identity();
+    ball.mesh.rotateY(Math.PI);
     ball.group.quaternion.identity();
     ball.group.lookAt(camera.position);
+  }
+
+  function mixEnergy(now) {
+    if (phase === "spin") {
+      const ramp = Math.min(1, (now - spinStarted) / 700);
+      return 1 + ramp * 1.55;
+    }
+    if (phase === "drop" || phase === "reveal") return 0.42;
+    return 1;
   }
 
   function playDraw({ entryRef, label }) {
@@ -240,8 +280,9 @@ export function mountDrum(canvas, hooks = {}) {
       return;
     }
     phase = "spin";
-    spin = 2.4;
-    phaseUntil = performance.now() + 1300;
+    spin = 3.4;
+    spinStarted = performance.now();
+    phaseUntil = spinStarted + DRAW_MIX_MS;
     release = { ball, label: label || `Entry ${ball.ref}`, ref: ball.ref };
   }
 
@@ -253,7 +294,7 @@ export function mountDrum(canvas, hooks = {}) {
     releaseFrom = ball.group.position.clone();
     const revealLines = String(release.label).split(" - ");
     const fresh = labelTexture(release.label, colorFor(ball.ref), revealLines.length > 1 ? revealLines : [release.label]);
-    ball.sprite.material.map = fresh;
+    ball.label.material.map = fresh;
     ball.texture.dispose();
     ball.texture = fresh;
   }
@@ -307,12 +348,37 @@ export function mountDrum(canvas, hooks = {}) {
 
   function animate(now) {
     requestAnimationFrame(animate);
-    const angle = now * 0.001 * spin;
-    if (!reduced && phase !== "drop" && phase !== "reveal") {
-      world.gravity.set(Math.sin(angle) * 2.1, -3.4, Math.cos(angle) * 2.1);
-      world.step(1 / 60);
-      drum.rotation.y += 0.004 * spin;
-      drum.rotation.z = Math.sin(now * 0.0004) * 0.08;
+    if (!reduced) {
+      const energy = mixEnergy(now);
+      const sub = (1 / 60) / SUBSTEPS;
+      for (const ball of balls.values()) {
+        if (release && ball === release.ball) continue;
+        if (ball.removeAt) continue;
+        if (now >= ball.nextKick) {
+          addKick(ball.body.velocity, energy, Math.random);
+          ball.body.angularVelocity.x += (Math.random() - 0.5) * 3.4;
+          ball.body.angularVelocity.y += (Math.random() - 0.5) * 3.4;
+          ball.body.angularVelocity.z += (Math.random() - 0.5) * 3.4;
+          const wait = energy > 1.35 ? 140 + Math.random() * 280 : 320 + Math.random() * 780;
+          ball.nextKick = now + wait;
+        }
+      }
+      for (let part = 0; part < SUBSTEPS; part += 1) {
+        for (const ball of balls.values()) {
+          if (release && ball === release.ball) continue;
+          if (ball.removeAt) continue;
+          stirInPlace(ball.body.position, ball.body.velocity, sub, energy);
+        }
+        world.step(sub);
+        for (const ball of balls.values()) {
+          if (release && ball === release.ball) continue;
+          if (ball.removeAt) continue;
+          containInPlace(ball.body.position, ball.body.velocity);
+          capAngular(ball.body, energy);
+        }
+      }
+      drum.rotation.y += 0.008 * (0.35 + energy);
+      drum.rotation.z = Math.sin(now * 0.00045) * 0.05;
     }
     if (phase === "spin" && now >= phaseUntil) beginDrop(now);
     if (phase === "drop" && release) {
@@ -330,7 +396,7 @@ export function mountDrum(canvas, hooks = {}) {
     }
     if (phase === "reveal" && now >= phaseUntil) {
       phase = "idle";
-      spin = 0.35;
+      spin = 0.45;
       if (release) {
         disposeBall(release.ball);
         const ref = release.ref;
@@ -346,7 +412,6 @@ export function mountDrum(canvas, hooks = {}) {
     const gone = [];
     for (const ball of balls.values()) {
       if (release && ball === release.ball && (phase === "drop" || phase === "reveal")) continue;
-      if (!ball.removeAt && phase !== "drop" && phase !== "reveal") contain(ball.body);
       ball.group.position.copy(ball.body.position);
       ball.mesh.quaternion.copy(ball.body.quaternion);
       const age = now - ball.appear;
