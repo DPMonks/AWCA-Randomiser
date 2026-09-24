@@ -257,6 +257,14 @@ test("mock mode serves sample members without Wix credentials", async () => {
     assert.equal(state.planName, "Sample Lottery Plan");
     assertPublicWinner(state.lastWinner);
     assert.match(state.lastWinner.label, /^S\.S\. - Entry [0-9A-F]{6}$/);
+    assert.equal(state.entryRefs.length, state.activeEntries);
+    assert.deepEqual(
+      [...state.entryRefs].sort(),
+      ["mock-ada", "mock-ben", "mock-cleo", "mock-drew"].map((id) => entryReference(id)).sort()
+    );
+    for (const ref of state.entryRefs) assert.match(ref, /^[0-9A-F]{6}$/);
+    assert.equal(JSON.stringify(state.entryRefs).includes("Sample"), false);
+    assert.equal(JSON.stringify(state.entryRefs).includes("."), false);
     assertNoPrivateNames(state);
 
     const drawn = await runDraw();
@@ -378,7 +386,10 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
     assert.equal(state.pot, 1.25);
     assert.equal(state.potLabel, "£1.25");
     assert.match(state.nextDrawLabel, /20:00 UK time$/);
+    assert.equal(state.entryRefs.length, 1);
+    assert.match(state.entryRefs[0], /^[0-9A-F]{6}$/);
     assert.equal(JSON.stringify(state).includes("Daniel Monks"), false);
+    assert.equal(JSON.stringify(state.entryRefs).includes("Daniel"), false);
 
     const members = await getMemberList();
     assert.equal(members.historyAvailable, false);

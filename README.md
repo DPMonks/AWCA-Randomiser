@@ -69,6 +69,10 @@ If the Wix CMS app is not installed, or the collection cannot be read, the page 
 
 In mock mode, a sample past result is always shown as initials and an entry reference. A new mock draw is also stored in an HttpOnly cookie so the same browser still shows it as Last Winner. Production draws are written to the Wix collection, which is the record that every visitor sees.
 
+## Demo drum
+
+Open `/?demo=1` (or `/demo.html`) to see the lottery drum with example data. A banner reads "Demo - example data". The entry slider and Play draw button stay in the browser and do not call Wix. Live pages still load `/api/state`, which includes `entryRefs` (the public reference codes only, never names or initials) so the drum can show one ball per entry.
+
 ## Local check
 
 ```bash

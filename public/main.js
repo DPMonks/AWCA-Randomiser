@@ -8,6 +8,134 @@ const adminMessage = document.getElementById("admin-message");
 const drawButton = document.getElementById("draw-button");
 const drawResult = document.getElementById("draw-result");
 let historyBlocked = false;
+let latestRefs = [];
+let queuedDraw = null;
+const demoMode = new URLSearchParams(location.search).get("demo") === "1";
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function londonMonth(date = new Date()) {
+  const bag = {};
+  for (const part of new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date)) {
+    if (part.type !== "literal") bag[part.type] = part.value;
+  }
+  return `${bag.year}-${bag.month}`;
+}
+
+function monthTitle(month) {
+  const match = /^(\d{4})-(\d{2})$/.exec(month || "");
+  if (!match) return "Past draw";
+  return `${MONTHS[Number(match[2]) - 1]} ${match[1]}`;
+}
+
+function pastWinnerText(draw) {
+  return `${monthTitle(draw.month)}: ${draw.label}. ${draw.entryCount} entries, pot ${draw.potLabel}.`;
+}
+
+function seenKey(draw) {
+  return `awca-seen:${draw.month || ""}:${draw.entryRef || ""}:${draw.drawnAt || ""}`;
+}
+
+function syncDrum(refs) {
+  latestRefs = Array.isArray(refs) ? refs : [];
+  if (window.AwcaDrum) window.AwcaDrum.setEntries(latestRefs);
+}
+
+function playWinner(draw) {
+  if (!draw) return;
+  const run = () => window.AwcaDrum && window.AwcaDrum.playDraw({
+    entryRef: draw.entryRef,
+    label: draw.label,
+  });
+  if (window.AwcaDrum) run();
+  else queuedDraw = run;
+}
+
+function armReplay(draw) {
+  const button = document.getElementById("replay-draw");
+  if (!button) return;
+  if (!draw || !draw.label) {
+    button.hidden = true;
+    button.onclick = null;
+    return;
+  }
+  button.hidden = false;
+  button.onclick = () => playWinner(draw);
+}
+
+function autoplayDraw(draw) {
+  armReplay(draw);
+  if (!draw) return;
+  const key = seenKey(draw);
+  try {
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+  } catch (error) {
+    console.error(error);
+  }
+  playWinner(draw);
+}
+
+function currentMonthDraw(history) {
+  const month = londonMonth();
+  return (history || []).find((draw) => draw.month === month && draw.label) || null;
+}
+
+function showWinnerCard(label) {
+  const card = document.getElementById("winner-card");
+  const text = document.getElementById("winner-card-label");
+  if (!card || !text) return;
+  text.textContent = label || "";
+  card.hidden = false;
+  card.classList.remove("is-on");
+  window.requestAnimationFrame(() => card.classList.add("is-on"));
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) launchConfetti();
+}
+
+function hideWinnerCard() {
+  const card = document.getElementById("winner-card");
+  if (!card) return;
+  card.classList.remove("is-on");
+  card.hidden = true;
+}
+
+function launchConfetti() {
+  const box = document.getElementById("confetti");
+  if (!box) return;
+  box.replaceChildren();
+  const colors = ["#f2c14e", "#2b6c3f", "#ffffff", "#7eb6ff", "#e36b6b"];
+  for (let i = 0; i < 36; i += 1) {
+    const piece = document.createElement("i");
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = colors[i % colors.length];
+    piece.style.animationDelay = `${Math.random() * 0.25}s`;
+    box.append(piece);
+  }
+  window.setTimeout(() => box.replaceChildren(), 2200);
+}
+
+function demoRef(index) {
+  let n = Math.imul(index + 1, 0x9e3779b1) >>> 0;
+  n ^= n >>> 16;
+  return (n & 0xffffff).toString(16).toUpperCase().padStart(6, "0");
+}
 
 function historyMessage(data) {
   return data?.historyMessage || HISTORY_UNAVAILABLE_MESSAGE;
@@ -50,26 +178,33 @@ async function readJson(response) {
   }
 }
 
-function renderHistory(history, unavailableMessage) {
-  const list = document.getElementById("history");
-  list.replaceChildren();
+function renderPastWinners(history, unavailableMessage) {
+  const select = document.getElementById("past-winners");
+  const detail = document.getElementById("past-winner-detail");
+  if (!select || !detail) return;
+  select.replaceChildren();
   if (unavailableMessage) {
-    const item = document.createElement("li");
-    item.textContent = unavailableMessage;
-    list.append(item);
+    select.disabled = true;
+    select.add(new Option(unavailableMessage, ""));
+    detail.textContent = unavailableMessage;
     return;
   }
   if (!history || history.length === 0) {
-    const item = document.createElement("li");
-    item.textContent = "No draws yet.";
-    list.append(item);
+    select.disabled = true;
+    select.add(new Option("No draws yet.", ""));
+    detail.textContent = "No draws yet.";
     return;
   }
-  for (const draw of history) {
-    const item = document.createElement("li");
-    item.textContent = `${draw.label}, ${draw.drawnAtLabel}. ${draw.entryCount} entries, pot ${draw.potLabel}.`;
-    list.append(item);
-  }
+  select.disabled = false;
+  history.forEach((draw, index) => {
+    select.add(new Option(pastWinnerText(draw), String(index)));
+  });
+  const show = () => {
+    const draw = history[Number(select.value)];
+    detail.textContent = draw ? pastWinnerText(draw) : "";
+  };
+  select.onchange = show;
+  show();
 }
 
 function renderState(data) {
@@ -87,7 +222,13 @@ function renderState(data) {
     document.getElementById("last-winner-name").textContent = "No winner yet";
     document.getElementById("last-winner-meta").textContent = "The first official draw has not been saved.";
   }
-  renderHistory(data.history, unavailable);
+  renderPastWinners(data.history, unavailable);
+  if (!demoMode) {
+    syncDrum(data.entryRefs || []);
+    const nightly = currentMonthDraw(data.history);
+    if (nightly) autoplayDraw(nightly);
+    else armReplay(data.lastWinner);
+  }
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
   } else if (unavailable) {
@@ -247,6 +388,13 @@ drawButton.addEventListener("click", async () => {
     }
     const name = data.winner.fullName || data.winner.label;
     drawResult.textContent = `Winner: ${name}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
+    try {
+      sessionStorage.setItem(seenKey(data.winner), "1");
+    } catch (error) {
+      console.error(error);
+    }
+    armReplay(data.winner);
+    playWinner(data.winner);
     await loadState();
     await loadAdminDraws();
   } catch (error) {
@@ -258,49 +406,70 @@ drawButton.addEventListener("click", async () => {
   }
 });
 
-function startMachine() {
-  const canvas = document.getElementById("lotteryCanvas");
-  if (!canvas || !window.THREE) return;
-  try {
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    camera.position.z = 5;
-
-    const geometry = new THREE.SphereGeometry(1, 32, 32);
-    const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
-    const ball = new THREE.Mesh(geometry, material);
-    scene.add(ball);
-
-    const light = new THREE.PointLight(0xffffff, 1);
-    light.position.set(5, 5, 5);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.35));
-
-    function sizeCanvas() {
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-      if (!width || !height) return;
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    }
-
-    function animate() {
-      requestAnimationFrame(animate);
-      ball.rotation.x += 0.01;
-      ball.rotation.y += 0.01;
-      renderer.render(scene, camera);
-    }
-
-    sizeCanvas();
-    window.addEventListener("resize", sizeCanvas);
-    animate();
-  } catch (error) {
-    console.error(error);
-  }
+function startDemo() {
+  const admin = document.querySelector(".awca-admin-wrap");
+  if (admin) admin.hidden = true;
+  const controls = document.getElementById("demo-controls");
+  if (controls) controls.hidden = false;
+  showNotice("demo", "Demo - example data");
+  document.getElementById("next-draw").textContent = "1 October 2026, 20:00 UK time";
+  document.getElementById("last-winner-name").textContent = "No winner yet";
+  document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
+  renderPastWinners([
+    {
+      month: "2026-08",
+      label: "S.S. - Entry 205179",
+      entryCount: 42,
+      potLabel: "£52.50",
+    },
+    {
+      month: "2026-07",
+      label: "A.B. - Entry 11AA09",
+      entryCount: 38,
+      potLabel: "£47.50",
+    },
+  ], "");
+  const slider = document.getElementById("entry-count");
+  const value = document.getElementById("entry-count-value");
+  const applyCount = () => {
+    const count = Number(slider.value);
+    value.textContent = String(count);
+    const refs = Array.from({ length: count }, (_, index) => demoRef(index));
+    syncDrum(refs);
+    document.getElementById("total-entries").textContent = String(count);
+    document.getElementById("total-winnings").textContent = `£${(count * 1.25).toFixed(2)}`;
+  };
+  slider.addEventListener("input", applyCount);
+  document.getElementById("play-draw").addEventListener("click", () => {
+    const count = Math.min(Number(slider.value), 100);
+    const ref = demoRef(Math.floor(Math.random() * Math.max(count, 1)));
+    const draw = {
+      month: londonMonth(),
+      entryRef: ref,
+      label: `A.B. - Entry ${ref}`,
+      drawnAt: new Date().toISOString(),
+    };
+    document.getElementById("last-winner-name").textContent = draw.label;
+    document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
+    armReplay(draw);
+    playWinner(draw);
+  });
+  applyCount();
 }
 
-loadState();
-loadMembers();
-startMachine();
+window.addEventListener("awca-drum-ready", () => {
+  if (latestRefs.length) syncDrum(latestRefs);
+  if (queuedDraw) {
+    const run = queuedDraw;
+    queuedDraw = null;
+    run();
+  }
+});
+window.addEventListener("awca-reveal", (event) => showWinnerCard(event.detail?.label));
+window.addEventListener("awca-reveal-end", hideWinnerCard);
+
+if (demoMode) startDemo();
+else {
+  loadState();
+  loadMembers();
+}

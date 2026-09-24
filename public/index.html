@@ -51,14 +51,33 @@
     </div>
 
     <div class="awca-result">
-      <h3>Past draws</h3>
-      <ul id="history" class="awca-history"></ul>
+      <h3>Past winners</h3>
+      <label class="awca-subtext" for="past-winners">Choose a month</label>
+      <select id="past-winners"></select>
+      <p id="past-winner-detail" class="awca-subtext"></p>
     </div>
   </section>
 
   <section class="awca-3d-panel">
-    <h2>3D Lottery Machine</h2>
-    <canvas id="lotteryCanvas"></canvas>
+    <div class="awca-drum-head">
+      <h2>Lottery drum</h2>
+      <button id="replay-draw" class="awca-secondary-btn" type="button" hidden>Replay draw</button>
+    </div>
+    <div class="awca-stage">
+      <canvas id="lotteryCanvas" aria-label="Lottery drum. Each ball shows an entry reference."></canvas>
+      <p id="drum-more" class="awca-more" hidden></p>
+      <div id="winner-card" class="awca-winner-card" hidden>
+        <p class="awca-winner-kicker">Winner</p>
+        <p id="winner-card-label"></p>
+      </div>
+      <div id="confetti" class="awca-confetti" aria-hidden="true"></div>
+    </div>
+    <div id="demo-controls" class="awca-demo" hidden>
+      <p class="awca-subtext">Example data only. Nothing here is a real draw.</p>
+      <label for="entry-count">Number of entries <span id="entry-count-value">10</span></label>
+      <input id="entry-count" type="range" min="1" max="150" value="10" />
+      <button id="play-draw" class="awca-draw-btn" type="button">Play draw</button>
+    </div>
   </section>
 </main>
 
@@ -107,7 +126,15 @@
   <p>&copy; AWCA Lottery, Alconbury Weald Community</p>
 </footer>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
 <script src="main.js"></script>
+<script type="module" src="drum.js"></script>
 </body>
 </html>
