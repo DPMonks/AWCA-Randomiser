@@ -13,7 +13,9 @@ let queuedDraw = null;
 let latestState = null;
 let pollTimer = null;
 let countdownTimer = null;
-const demoMode = new URLSearchParams(location.search).get("demo") === "1";
+const demoParams = new URLSearchParams(location.search);
+const demoMode = demoParams.get("demo") === "1";
+let onDrumReady = null;
 
 const MONTHS = [
   "January",
@@ -474,12 +476,107 @@ drawButton.addEventListener("click", async () => {
   }
 });
 
+function demoCountdownSeconds() {
+  const raw = demoParams.get("countdown");
+  if (raw == null || !/^\d+$/.test(raw)) return 0;
+  const seconds = Number(raw);
+  if (seconds < 1 || seconds > 120) return 0;
+  return seconds;
+}
+
+function londonStamp(date) {
+  const bag = {};
+  for (const part of new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date)) {
+    if (part.type !== "literal") bag[part.type] = part.value;
+  }
+  return `${Number(bag.day)} ${MONTHS[Number(bag.month) - 1]} ${bag.year}, ${bag.hour}:${bag.minute}:${bag.second} UK time`;
+}
+
+function demoNightRefs(count) {
+  const refs = [];
+  const seen = new Set();
+  for (let index = 0; refs.length < count; index += 1) {
+    const ref = demoRef(index);
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    refs.push(ref);
+  }
+  if (!seen.has("840053")) refs[refs.length - 1] = "840053";
+  return refs;
+}
+
+function startDemoNight(seconds) {
+  document.body.classList.add("demo-night");
+  const controls = document.getElementById("demo-controls");
+  if (controls) controls.hidden = true;
+  const refs = demoNightRefs(40);
+  syncDrum(refs);
+  document.getElementById("total-entries").textContent = String(refs.length);
+  document.getElementById("total-winnings").textContent = `£${(refs.length * 1.25).toFixed(2)}`;
+  document.getElementById("last-winner-name").textContent = "No winner yet";
+  document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
+  const countdown = document.getElementById("draw-countdown");
+  countdown.textContent = formatRemain(seconds * 1000);
+  const winner = {
+    month: londonMonth(),
+    entryRef: "840053",
+    label: "A.B. - Entry 840053",
+    drawnAt: new Date().toISOString(),
+  };
+  let target = 0;
+  let drew = false;
+  const tick = () => {
+    if (!target) return;
+    const remain = target - Date.now();
+    if (remain > 0) {
+      countdown.textContent = formatRemain(remain);
+      return;
+    }
+    countdown.textContent = "Drawing now";
+    if (drew) return;
+    drew = true;
+    window.setTimeout(() => {
+      winner.drawnAt = new Date().toISOString();
+      document.getElementById("last-winner-name").textContent = winner.label;
+      document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
+      armReplay(winner);
+      playWinner(winner);
+    }, 1200);
+  };
+  document.getElementById("next-draw").textContent = "Example draw, 20:00 UK time";
+  onDrumReady = () => {
+    target = Date.now() + seconds * 1000;
+    document.getElementById("next-draw").textContent = londonStamp(new Date(target));
+    tick();
+    window.setInterval(tick, 250);
+  };
+  if (window.AwcaDrum) {
+    const start = onDrumReady;
+    onDrumReady = null;
+    start();
+  }
+}
+
 function startDemo() {
   const admin = document.querySelector(".awca-admin-wrap");
   if (admin) admin.hidden = true;
+  showNotice("demo", "Demo - example data");
+  const seconds = demoCountdownSeconds();
+  if (seconds) {
+    startDemoNight(seconds);
+    return;
+  }
   const controls = document.getElementById("demo-controls");
   if (controls) controls.hidden = false;
-  showNotice("demo", "Demo - example data");
   document.getElementById("next-draw").textContent = "1 October 2026, 20:00 UK time";
   const countdown = document.getElementById("draw-countdown");
   if (countdown) countdown.textContent = "";
@@ -529,6 +626,12 @@ function startDemo() {
 
 window.addEventListener("awca-drum-ready", () => {
   if (latestRefs.length) syncDrum(latestRefs);
+  if (window.AwcaDrum) window.AwcaDrum.resize();
+  if (onDrumReady) {
+    const start = onDrumReady;
+    onDrumReady = null;
+    start();
+  }
   if (queuedDraw) {
     const run = queuedDraw;
     queuedDraw = null;

@@ -86,6 +86,8 @@ In mock mode, a sample past result is always shown as initials and an entry refe
 
 Open `/?demo=1` (or `/demo.html`) to see the lottery drum with example data. A banner reads "Demo - example data". The entry slider and Play draw button stay in the browser and do not call Wix. Live pages still load `/api/state`, which includes `entryRefs` (the public reference codes only, never names or initials) so the drum can show one ball per entry.
 
+`/?demo=1&countdown=10` rehearses draw night without Wix. The next draw is 10 seconds ahead, about 40 example entries tumble in the drum, the countdown reaches "Drawing now", then the drum plays a fixed example result, `A.B. - Entry 840053`, with confetti and Replay. `countdown` can be any whole number from 1 to 120.
+
 ## Local check
 
 ```bash

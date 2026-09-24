@@ -674,6 +674,17 @@ test("admin token accepts the right password only", () => {
   assert.equal(verifyToken(token, "secret", 1_000 + 13 * 60 * 60 * 1000), false);
 });
 
+test("demo countdown rehearses draw night without calling the server", async () => {
+  const source = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
+  assert.match(source, /demo=1&countdown=10|countdown/);
+  assert.match(source, /A\.B\. - Entry 840053/);
+  assert.match(source, /Drawing now/);
+  assert.match(source, /Demo - example data/);
+  const night = source.slice(source.indexOf("function startDemoNight"), source.indexOf("function startDemo("));
+  assert.equal(night.includes("fetch("), false);
+  assert.match(night, /demoNightRefs\(40\)/);
+});
+
 test("source files do not contain em or en dashes", async () => {
   const banned = ["\u2013", "\u2014", "\u2011"];
   const skipDirs = new Set([".git", "node_modules"]);
