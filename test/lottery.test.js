@@ -129,6 +129,17 @@ test("mock mode serves sample members without Wix credentials", async () => {
     const again = await getPublicState();
     assert.equal(again.lastWinner.name, drawn.winner.name);
     assert.equal(again.history[1].name, "Sample Winner Sam");
+
+    const fromCookie = await getPublicState([
+      {
+        winnerName: "Sample Member Cookie",
+        winnerMemberId: "mock-cookie",
+        drawnAt: "2026-09-24T12:00:00.000Z",
+        entryCount: 4,
+        potAmount: 5,
+      },
+    ]);
+    assert.equal(fromCookie.lastWinner.name, "Sample Member Cookie");
   } finally {
     restoreEnv();
   }

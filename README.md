@@ -52,7 +52,7 @@ Only orders whose status is `ACTIVE` go into the draw, one entry per member. Can
 
 Past draws are stored in a Wix CMS collection named `LotteryDraws` (winner name, member id, time, entry count, pot). The server creates that collection on first use. No separate database is required. Collection permissions are limited to site admins.
 
-In mock mode, a sample past winner is always shown. Any new mock draw is kept only for the life of that server instance, because there is no Wix site to write to.
+In mock mode, a sample past winner is always shown. A new mock draw is also stored in an HttpOnly cookie so the same browser still shows it as Last Winner. Production draws are written to the Wix collection, which is the record that every visitor sees.
 
 ## Local check
 

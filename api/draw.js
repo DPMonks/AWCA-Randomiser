@@ -1,6 +1,7 @@
 import { requireAdmin } from "../lib/auth.js";
 import { asyncHandler, sendJson } from "../lib/http.js";
 import { runDraw } from "../lib/lottery.js";
+import { rememberDraw } from "../lib/mock-cookie.js";
 
 export default asyncHandler(async (req, res) => {
   if (req.method !== "POST") {
@@ -8,5 +9,7 @@ export default asyncHandler(async (req, res) => {
     return;
   }
   requireAdmin(req);
-  sendJson(res, 200, await runDraw());
+  const result = await runDraw();
+  rememberDraw(req, res, result.record);
+  sendJson(res, 200, { mock: result.mock, winner: result.winner });
 });
