@@ -674,6 +674,13 @@ test("admin token accepts the right password only", () => {
   assert.equal(verifyToken(token, "secret", 1_000 + 13 * 60 * 60 * 1000), false);
 });
 
+test("the drum source has no gold ring mesh", async () => {
+  const source = await readFile(new URL("../public/drum.js", import.meta.url), "utf8");
+  assert.equal(/TorusGeometry|RingGeometry/.test(source), false);
+  assert.equal(/0xd7a441|0xf2c14e/i.test(source), false);
+  assert.match(source, /function frameCamera/);
+});
+
 test("demo countdown rehearses draw night without calling the server", async () => {
   const source = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
   assert.match(source, /demo=1&countdown=10|countdown/);

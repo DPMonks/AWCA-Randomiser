@@ -61,8 +61,7 @@ export function mountDrum(canvas, hooks = {}) {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 40);
-  camera.position.set(0, 0.35, 4.35);
-  camera.lookAt(0, 0.05, 0);
+  const frameTarget = new THREE.Vector3(0, -0.12, 0);
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   const key = new THREE.DirectionalLight(0xfff4dd, 1.15);
@@ -95,12 +94,12 @@ export function mountDrum(canvas, hooks = {}) {
       side: THREE.BackSide,
     })
   );
-  const hatch = new THREE.Mesh(
-    new THREE.TorusGeometry(0.28, 0.045, 12, 32),
-    new THREE.MeshPhongMaterial({ color: 0xd7a441, shininess: 70 })
+  const hole = new THREE.Mesh(
+    new THREE.CircleGeometry(0.2, 28),
+    new THREE.MeshBasicMaterial({ color: 0x071425, side: THREE.DoubleSide })
   );
-  hatch.position.set(0, -DRUM_RADIUS + 0.08, 0.15);
-  hatch.rotation.x = Math.PI / 2.4;
+  hole.position.set(0, -DRUM_RADIUS + 0.16, 0.18);
+  hole.rotation.x = Math.PI / 2;
   const chute = new THREE.Mesh(
     new THREE.CylinderGeometry(0.2, 0.26, 1.55, 20, 1, true),
     new THREE.MeshPhongMaterial({
@@ -118,8 +117,8 @@ export function mountDrum(canvas, hooks = {}) {
     new THREE.MeshPhongMaterial({ color: 0x16324f, shininess: 30 })
   );
   stand.position.set(0, -1.58, 0);
-  drum.add(shell, rimGlass, hatch);
-  scene.add(chute, stand);
+  drum.add(shell, rimGlass);
+  scene.add(chute, stand, hole);
 
   const world = new World({ gravity: new Vec3(0, -3.2, 0) });
   world.broadphase = new SAPBroadphase(world);
@@ -261,8 +260,8 @@ export function mountDrum(canvas, hooks = {}) {
 
   function dropPosition(t) {
     const from = releaseFrom;
-    const hatch = new THREE.Vector3(0, -1.2, 0.35);
-    const mouth = new THREE.Vector3(0.02, -0.15, 2.45);
+    const hatch = new THREE.Vector3(0, -1.15, 0.28);
+    const mouth = new THREE.Vector3(0.02, -0.42, 1.72);
     if (t < 0.42) {
       const local = t / 0.42;
       return new THREE.Vector3(
@@ -273,12 +272,23 @@ export function mountDrum(canvas, hooks = {}) {
     }
     const local = (t - 0.42) / 0.58;
     const u = 1 - local;
-    const lift = new THREE.Vector3(0, -0.2, 1.25);
+    const lift = new THREE.Vector3(0, -0.55, 1.05);
     return new THREE.Vector3(
       u * u * hatch.x + 2 * u * local * lift.x + local * local * mouth.x,
       u * u * hatch.y + 2 * u * local * lift.y + local * local * mouth.y,
       u * u * hatch.z + 2 * u * local * lift.z + local * local * mouth.z
     );
+  }
+
+  function frameCamera() {
+    const aspect = Math.max(camera.aspect, 0.25);
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const pad = 1.2;
+    const distY = (1.9 * pad) / Math.tan(vFov / 2);
+    const distX = (1.72 * pad) / Math.tan(hFov / 2);
+    camera.position.set(0, frameTarget.y + 0.26, Math.max(distX, distY));
+    camera.lookAt(frameTarget);
   }
 
   function resize() {
@@ -288,6 +298,7 @@ export function mountDrum(canvas, hooks = {}) {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    frameCamera();
   }
 
   function render() {
@@ -309,7 +320,7 @@ export function mountDrum(canvas, hooks = {}) {
       const eased = t * t * (3 - 2 * t);
       const point = dropPosition(eased);
       release.ball.group.position.copy(point);
-      release.ball.group.scale.setScalar(1 + eased * 0.85);
+      release.ball.group.scale.setScalar(1 + eased * 0.5);
       faceCamera(release.ball);
       if (t >= 1 && phase === "drop") {
         phase = "reveal";
