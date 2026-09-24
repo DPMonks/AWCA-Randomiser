@@ -19,8 +19,9 @@ function reducedMotion() {
 function colorFor(ref) {
   let hash = 0;
   for (let i = 0; i < ref.length; i += 1) hash = (hash * 33 + ref.charCodeAt(i)) >>> 0;
-  const hue = hash % 360;
-  return `hsl(${hue} 72% 46%)`;
+  const color = new THREE.Color();
+  color.setHSL((hash % 360) / 360, 0.72, 0.46);
+  return color;
 }
 
 function labelTexture(text, color, lines) {
@@ -144,7 +145,7 @@ export function mountDrum(canvas, hooks = {}) {
 
   const balls = new Map();
   const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 18, 14);
-  const labelGeo = new THREE.CircleGeometry(0.105, 20);
+  const labelGeo = new THREE.CircleGeometry(0.1, 20);
   let spin = 0.45;
   let phase = "idle";
   let phaseUntil = 0;
@@ -168,15 +169,14 @@ export function mountDrum(canvas, hooks = {}) {
 
   function makeBall(ref, index) {
     const color = colorFor(ref);
-    const material = new THREE.MeshPhongMaterial({ color, shininess: 40 });
+    const material = new THREE.MeshPhongMaterial({ color, shininess: 50 });
     const mesh = new THREE.Mesh(ballGeo, material);
-    const texture = labelTexture(ref, color);
+    const texture = labelTexture(ref, color.getStyle());
     const label = new THREE.Mesh(
       labelGeo,
-      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false })
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
     );
-    label.position.z = 0.07;
-    label.renderOrder = 2;
+    label.position.z = BALL_RADIUS + 0.01;
     mesh.add(label);
     const group = new THREE.Group();
     group.add(mesh);
@@ -293,7 +293,7 @@ export function mountDrum(canvas, hooks = {}) {
     world.removeBody(ball.body);
     releaseFrom = ball.group.position.clone();
     const revealLines = String(release.label).split(" - ");
-    const fresh = labelTexture(release.label, colorFor(ball.ref), revealLines.length > 1 ? revealLines : [release.label]);
+    const fresh = labelTexture(release.label, colorFor(ball.ref).getStyle(), revealLines.length > 1 ? revealLines : [release.label]);
     ball.label.material.map = fresh;
     ball.texture.dispose();
     ball.texture = fresh;

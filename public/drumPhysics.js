@@ -1,7 +1,7 @@
 export const DRUM_RADIUS = 1.42;
 export const BALL_RADIUS = 0.13;
-export const SHELL_GAP = 0.03;
-export const CONTAIN_LIMIT = DRUM_RADIUS - BALL_RADIUS - SHELL_GAP;
+export const VISUAL_RADIUS = 0.18;
+export const CONTAIN_LIMIT = DRUM_RADIUS - VISUAL_RADIUS;
 export const RESTITUTION = 0.9;
 export const SUBSTEPS = 3;
 export const IDLE_SPEED = 4.6;
