@@ -331,6 +331,10 @@ body {
   padding: 1rem;
 }
 
+body.demo-night {
+  overflow: hidden;
+}
+
 body.demo-night .awca-header {
   padding: 0.4rem 1rem;
 }
@@ -400,11 +404,62 @@ body.demo-night #lotteryCanvas {
     height: 380px;
   }
 
+  body.demo-night .awca-header p,
+  body.demo-night .awca-panel > h2 {
+    display: none;
+  }
+
+  body.demo-night .awca-header {
+    padding: 0.25rem 0.6rem;
+  }
+
+  body.demo-night .awca-logo {
+    height: 32px;
+  }
+
+  body.demo-night .awca-header h1 {
+    font-size: 1.15rem;
+  }
+
+  body.demo-night .awca-notice {
+    margin: 0.25rem auto 0;
+  }
+
+  body.demo-night .awca-main {
+    gap: 0.4rem;
+    margin: 0.25rem auto;
+  }
+
+  body.demo-night .awca-panel,
+  body.demo-night .awca-3d-panel {
+    padding: 0.4rem 0.55rem;
+  }
+
+  body.demo-night .awca-stats {
+    gap: 0.35rem;
+  }
+
+  body.demo-night .awca-stat {
+    padding: 0.28rem 0.4rem;
+  }
+
+  body.demo-night .awca-stat h3 {
+    margin: 0;
+  }
+
+  body.demo-night .awca-stage {
+    margin-top: 0.35rem;
+  }
+
   body.demo-night #lotteryCanvas {
-    height: 320px;
+    height: 300px;
   }
 
   body.demo-night .awca-stat .awca-subtext:not(#draw-countdown) {
     display: none;
+  }
+
+  body.demo-night #draw-countdown {
+    font-size: 1.15rem;
   }
 }
