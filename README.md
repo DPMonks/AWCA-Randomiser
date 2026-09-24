@@ -65,6 +65,8 @@ The admin member list shows the full name beside the entry reference. The admin 
 
 Past draws are stored in a Wix CMS collection named `LotteryDraws`. Each row stores the member id, initials, entry reference, month, entry count, pot, and the time of the draw. The winner's full name is not stored. The server creates that collection on first use. Read, insert, update, and remove are all limited to site admins. If an older `LotteryDraws` collection already exists from a previous version of this page, delete it in the Wix CMS so the server can recreate it without a name field.
 
+If the Wix CMS app is not installed, or the collection cannot be read, the page still shows the live entry count, prize pot, and next draw. Last winner and past draws stay empty, and the response includes `historyAvailable: false`. Draw Winner is refused until CMS is enabled, so a winner is not chosen when it cannot be saved. Add the CMS app in the Wix dashboard, then reload the page. The server creates `LotteryDraws` on the next successful draw.
+
 In mock mode, a sample past result is always shown as initials and an entry reference. A new mock draw is also stored in an HttpOnly cookie so the same browser still shows it as Last Winner. Production draws are written to the Wix collection, which is the record that every visitor sees.
 
 ## Local check

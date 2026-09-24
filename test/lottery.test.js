@@ -9,6 +9,7 @@ import { pickWinner } from "../lib/draw.js";
 import { activeEntrants, buildMembers } from "../lib/entrants.js";
 import { formatUkDate, nextDrawDate, potFor } from "../lib/format.js";
 import { getAdminDraws, getMemberList, getPublicState, runDraw } from "../lib/lottery.js";
+import { HISTORY_UNAVAILABLE_MESSAGE } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
 import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
 import { drawCollectionSpec, toDrawRecord } from "../lib/wix.js";
@@ -298,6 +299,104 @@ test("mock mode serves sample members without Wix credentials", async () => {
     assert.match(fromCookie.lastWinner.label, /^S\.C\. - Entry [0-9A-F]{6}$/);
     assertNoPrivateNames(fromCookie);
   } finally {
+    restoreEnv();
+  }
+});
+
+test("WDE0110 leaves live entries available and refuses the draw", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.WIX_LOTTERY_PLAN_ID = "6c181c0f-8ed4-43f9-adea-15aee44998f6";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  process.env.ADMIN_PASSWORD = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const dataCalls = [];
+
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/pricing-plans/v3/plans/query")) {
+      return json({
+        plans: [
+          {
+            id: "6c181c0f-8ed4-43f9-adea-15aee44998f6",
+            name: "Community Lottery",
+            currency: "GBP",
+            pricingVariants: [{ pricingStrategies: [{ flatRate: { amount: "2.50" } }] }],
+          },
+        ],
+      });
+    }
+    if (path.includes("/pricing-plans/v2/orders")) {
+      return json({
+        orders: [
+          {
+            status: "ACTIVE",
+            buyer: { memberId: "member-1" },
+            startDate: "2026-01-05T10:00:00.000Z",
+            updatedDate: "2026-01-05T10:00:00.000Z",
+          },
+        ],
+        pagingMetadata: { total: 1, hasNext: false },
+      });
+    }
+    if (path.includes("/members/v1/members/query")) {
+      return json({
+        members: [
+          {
+            id: "member-1",
+            contact: { firstName: "Daniel", lastName: "Monks" },
+          },
+        ],
+      });
+    }
+    if (path.includes("/wix-data/")) {
+      dataCalls.push({ path, method: options.method || "GET" });
+      return json(
+        {
+          message:
+            "WDE0110: Wix CMS app is not installed for site (appId: e593b0bd-b783-45b8-97c2-873d42aacaf4).",
+        },
+        400
+      );
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+
+  try {
+    const state = await getPublicState();
+    assert.equal(state.historyAvailable, false);
+    assert.equal(state.historyMessage, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(state.lastWinner, null);
+    assert.deepEqual(state.history, []);
+    assert.equal(state.activeEntries, 1);
+    assert.equal(state.pot, 1.25);
+    assert.equal(state.potLabel, "£1.25");
+    assert.match(state.nextDrawLabel, /20:00 UK time$/);
+    assert.equal(JSON.stringify(state).includes("Daniel Monks"), false);
+
+    const members = await getMemberList();
+    assert.equal(members.historyAvailable, false);
+    assert.equal(members.members.length, 1);
+    assert.equal(members.members[0].name, "Daniel Monks");
+    assert.match(members.members[0].entryRef, /^[0-9A-F]{6}$/);
+
+    const adminDraws = await getAdminDraws();
+    assert.equal(adminDraws.historyAvailable, false);
+    assert.deepEqual(adminDraws.draws, []);
+
+    await assert.rejects(runDraw(), new RegExp(HISTORY_UNAVAILABLE_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.equal(
+      dataCalls.some((call) => /\/wix-data\/v2\/items$/.test(call.path)),
+      false
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
     restoreEnv();
   }
 });

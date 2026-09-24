@@ -1,9 +1,29 @@
+const HISTORY_UNAVAILABLE_MESSAGE =
+  "Draw history is unavailable: the Wix CMS is not enabled on the site. Enable CMS in the Wix dashboard to save draws.";
+
 const notice = document.getElementById("notice");
 const adminForm = document.getElementById("admin-form");
 const adminTools = document.getElementById("admin-tools");
 const adminMessage = document.getElementById("admin-message");
 const drawButton = document.getElementById("draw-button");
 const drawResult = document.getElementById("draw-result");
+let historyBlocked = false;
+
+function historyMessage(data) {
+  return data?.historyMessage || HISTORY_UNAVAILABLE_MESSAGE;
+}
+
+function applyHistoryAvailability(data) {
+  historyBlocked = data?.historyAvailable === false;
+  drawButton.disabled = historyBlocked;
+  if (!historyBlocked) return "";
+  const message = historyMessage(data);
+  if (!adminTools.hidden) {
+    setAdminMessage(message);
+    drawResult.textContent = message;
+  }
+  return message;
+}
 
 function setAdminMessage(text) {
   adminMessage.hidden = !text;
@@ -30,9 +50,15 @@ async function readJson(response) {
   }
 }
 
-function renderHistory(history) {
+function renderHistory(history, unavailableMessage) {
   const list = document.getElementById("history");
   list.replaceChildren();
+  if (unavailableMessage) {
+    const item = document.createElement("li");
+    item.textContent = unavailableMessage;
+    list.append(item);
+    return;
+  }
   if (!history || history.length === 0) {
     const item = document.createElement("li");
     item.textContent = "No draws yet.";
@@ -50,16 +76,22 @@ function renderState(data) {
   document.getElementById("total-entries").textContent = String(data.activeEntries ?? 0);
   document.getElementById("total-winnings").textContent = data.potLabel || "Unavailable";
   document.getElementById("next-draw").textContent = data.nextDrawLabel || "Unavailable";
-  if (data.lastWinner) {
+  const unavailable = applyHistoryAvailability(data);
+  if (unavailable) {
+    document.getElementById("last-winner-name").textContent = "History unavailable";
+    document.getElementById("last-winner-meta").textContent = unavailable;
+  } else if (data.lastWinner) {
     document.getElementById("last-winner-name").textContent = data.lastWinner.label;
     document.getElementById("last-winner-meta").textContent = data.lastWinner.drawnAtLabel;
   } else {
     document.getElementById("last-winner-name").textContent = "No winner yet";
     document.getElementById("last-winner-meta").textContent = "The first official draw has not been saved.";
   }
-  renderHistory(data.history);
+  renderHistory(data.history, unavailable);
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
+  } else if (unavailable) {
+    showNotice("error", unavailable);
   } else {
     showNotice("", "");
   }
@@ -85,10 +117,16 @@ async function loadState() {
   }
 }
 
-function renderAdminHistory(draws) {
+function renderAdminHistory(draws, unavailableMessage) {
   const list = document.getElementById("admin-history");
   if (!list) return;
   list.replaceChildren();
+  if (unavailableMessage) {
+    const item = document.createElement("li");
+    item.textContent = unavailableMessage;
+    list.append(item);
+    return;
+  }
   if (!draws || draws.length === 0) {
     const item = document.createElement("li");
     item.textContent = "No draws yet.";
@@ -110,7 +148,8 @@ async function loadAdminDraws() {
     setAdminMessage(data.error || "The draw record could not be loaded.");
     return;
   }
-  renderAdminHistory(data.draws);
+  const unavailable = applyHistoryAvailability(data);
+  renderAdminHistory(data.draws, unavailable);
 }
 
 function renderMembers(members) {
@@ -158,6 +197,7 @@ async function loadMembers() {
   adminForm.hidden = true;
   adminTools.hidden = false;
   renderMembers(data.members);
+  applyHistoryAvailability(data);
   await loadAdminDraws();
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
@@ -213,7 +253,7 @@ drawButton.addEventListener("click", async () => {
     console.error(error);
     showNotice("error", "The draw could not be completed.");
   } finally {
-    drawButton.disabled = false;
+    drawButton.disabled = historyBlocked;
     drawButton.textContent = "Draw Winner";
   }
 });
