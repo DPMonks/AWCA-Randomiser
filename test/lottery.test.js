@@ -156,19 +156,20 @@ test("admin token accepts the right password only", () => {
 
 test("source files do not contain em or en dashes", async () => {
   const banned = ["\u2013", "\u2014", "\u2011"];
+  const skipDirs = new Set([".git", "node_modules"]);
   const root = new URL("..", import.meta.url).pathname;
-  const skip = new Set([".git", "node_modules", "public"]);
 
   async function walk(dir) {
     const entries = await readdir(dir);
     for (const name of entries) {
-      if (skip.has(name)) continue;
+      if (skipDirs.has(name)) continue;
       const path = join(dir, name);
       const info = await stat(path);
       if (info.isDirectory()) {
         await walk(path);
         continue;
       }
+      if (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)) continue;
       const text = await readFile(path, "utf8");
       for (const mark of banned) {
         assert.equal(text.includes(mark), false, `${path} contains a banned dash`);

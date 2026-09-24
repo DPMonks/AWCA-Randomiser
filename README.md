@@ -61,3 +61,5 @@ npm test
 ```
 
 To run the page locally, use the Vercel CLI (`vercel dev`) with `WIX_MOCK=1` and an `ADMIN_PASSWORD` in `.env`.
+
+The page files live in `public/` (`index.html`, `styles.css`, `main.js`, and the logo). Vercel serves that folder for a project with no framework. API routes stay in `api/`.
