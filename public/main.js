@@ -10,6 +10,9 @@ const drawResult = document.getElementById("draw-result");
 let historyBlocked = false;
 let latestRefs = [];
 let queuedDraw = null;
+let latestState = null;
+let pollTimer = null;
+let countdownTimer = null;
 const demoMode = new URLSearchParams(location.search).get("demo") === "1";
 
 const MONTHS = [
@@ -207,10 +210,74 @@ function renderPastWinners(history, unavailableMessage) {
   show();
 }
 
+function formatRemain(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  const clock = `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+  return days ? `${days}d ${clock}` : clock;
+}
+
+function waitingForResult(data) {
+  if (demoMode || !data || data.historyAvailable === false) return false;
+  if (currentMonthDraw(data.history)) return false;
+  if (data.drawDue) return true;
+  const target = Date.parse(data.nextDraw || "");
+  return Number.isFinite(target) && Date.now() >= target;
+}
+
+function paintCountdown() {
+  const el = document.getElementById("draw-countdown");
+  if (!el || demoMode || !latestState) return;
+  if (latestState.historyAvailable === false) {
+    el.textContent = "";
+    return;
+  }
+  if (waitingForResult(latestState)) {
+    el.textContent = "Drawing now";
+    return;
+  }
+  const target = Date.parse(latestState.nextDraw || "");
+  if (!Number.isFinite(target)) {
+    el.textContent = "";
+    return;
+  }
+  const remain = target - Date.now();
+  el.textContent = remain <= 0 ? "Drawing now" : formatRemain(remain);
+}
+
+function ensureCountdown() {
+  paintCountdown();
+  if (countdownTimer || demoMode) return;
+  countdownTimer = window.setInterval(() => {
+    paintCountdown();
+    if (waitingForResult(latestState)) ensurePoll();
+  }, 1000);
+}
+
+function ensurePoll() {
+  if (demoMode || pollTimer || !waitingForResult(latestState)) return;
+  pollTimer = window.setInterval(() => {
+    loadState();
+  }, 5000);
+}
+
+function stopPoll() {
+  if (!pollTimer) return;
+  window.clearInterval(pollTimer);
+  pollTimer = null;
+}
+
 function renderState(data) {
+  latestState = data;
   document.getElementById("total-entries").textContent = String(data.activeEntries ?? 0);
   document.getElementById("total-winnings").textContent = data.potLabel || "Unavailable";
   document.getElementById("next-draw").textContent = data.nextDrawLabel || "Unavailable";
+  ensureCountdown();
+  if (waitingForResult(data)) ensurePoll();
+  else stopPoll();
   const unavailable = applyHistoryAvailability(data);
   if (unavailable) {
     document.getElementById("last-winner-name").textContent = "History unavailable";
@@ -387,7 +454,8 @@ drawButton.addEventListener("click", async () => {
       return;
     }
     const name = data.winner.fullName || data.winner.label;
-    drawResult.textContent = `Winner: ${name}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
+    const prefix = data.alreadyDrawn ? "This month already has a winner" : "Winner";
+    drawResult.textContent = `${prefix}: ${name}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
     try {
       sessionStorage.setItem(seenKey(data.winner), "1");
     } catch (error) {
@@ -413,6 +481,8 @@ function startDemo() {
   if (controls) controls.hidden = false;
   showNotice("demo", "Demo - example data");
   document.getElementById("next-draw").textContent = "1 October 2026, 20:00 UK time";
+  const countdown = document.getElementById("draw-countdown");
+  if (countdown) countdown.textContent = "";
   document.getElementById("last-winner-name").textContent = "No winner yet";
   document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
   renderPastWinners([

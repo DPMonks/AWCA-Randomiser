@@ -4,15 +4,16 @@ import { mkdtemp, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { issueToken, passwordMatches, verifyToken } from "../lib/auth.js";
+import cronDraw from "../api/cron/draw.js";
+import { issueToken, passwordMatches, requireCron, verifyToken } from "../lib/auth.js";
 import { pickWinner } from "../lib/draw.js";
 import { activeEntrants, buildMembers } from "../lib/entrants.js";
-import { formatUkDate, nextDrawDate, potFor } from "../lib/format.js";
-import { getAdminDraws, getMemberList, getPublicState, runDraw } from "../lib/lottery.js";
+import { formatUkDate, isDrawDue, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
+import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, runDraw } from "../lib/lottery.js";
 import { HISTORY_UNAVAILABLE_MESSAGE } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
 import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
-import { drawCollectionSpec, toDrawRecord } from "../lib/wix.js";
+import { drawCollectionSpec, insertDrawIfAbsent, toDrawRecord } from "../lib/wix.js";
 
 const savedEnv = { ...process.env };
 
@@ -22,6 +23,24 @@ function restoreEnv() {
   }
   Object.assign(process.env, savedEnv);
 }
+
+test("draw is due at 20:00 UK time in summer and winter", () => {
+  const summer = new Date("2026-10-01T19:00:00.000Z");
+  const summerEarly = new Date("2026-10-01T18:59:00.000Z");
+  assert.equal(londonMonthKey(summer), "2026-10");
+  assert.equal(isDrawDue(summer), true);
+  assert.equal(isDrawDue(summerEarly), false);
+  assert.equal(formatUkDate(monthDrawInstant(summer), { withTime: true }), "1 October 2026, 20:00 UK time");
+
+  const winter = new Date("2026-12-01T20:00:00.000Z");
+  const winterEarly = new Date("2026-12-01T19:59:00.000Z");
+  const winterNineteenUtc = new Date("2026-12-01T19:00:00.000Z");
+  assert.equal(londonMonthKey(winter), "2026-12");
+  assert.equal(isDrawDue(winter), true);
+  assert.equal(isDrawDue(winterEarly), false);
+  assert.equal(isDrawDue(winterNineteenUtc), false);
+  assert.equal(formatUkDate(monthDrawInstant(winter), { withTime: true }), "1 December 2026, 20:00 UK time");
+});
 
 test("next draw is 20:00 UK time on the 1st", () => {
   const before = nextDrawDate(new Date("2026-09-01T18:59:00.000Z"));
@@ -250,8 +269,9 @@ test("mock mode serves sample members without Wix credentials", async () => {
   delete process.env.ENTRY_REF_SECRET;
   delete process.env.ADMIN_PASSWORD;
   try {
-    const state = await getPublicState();
+    const state = await getPublicState([], new Date("2026-09-01T12:00:00.000Z"));
     assert.equal(state.mock, true);
+    assert.equal(state.drawDue, false);
     assert.equal(state.activeEntries, 4);
     assert.equal(state.pot, 5);
     assert.equal(state.planName, "Sample Lottery Plan");
@@ -267,7 +287,8 @@ test("mock mode serves sample members without Wix credentials", async () => {
     assert.equal(JSON.stringify(state.entryRefs).includes("."), false);
     assertNoPrivateNames(state);
 
-    const drawn = await runDraw();
+    const drawAt = new Date("2026-09-24T08:00:00.000Z");
+    const drawn = await runDraw(drawAt);
     assert.match(drawn.winner.fullName, /^Sample Member /);
     assert.match(drawn.winner.label, /^[A-Z](?:\.[A-Z])*\. - Entry [0-9A-F]{6}$/);
     assert.equal(drawn.winner.entryRef, entryReference(drawn.record.memberId));
@@ -276,7 +297,11 @@ test("mock mode serves sample members without Wix credentials", async () => {
     assert.equal("winnerName" in drawn.record, false);
     assert.equal(JSON.stringify(drawn.record).includes(drawn.winner.fullName), false);
 
-    const again = await getPublicState();
+    const again = await getPublicState([], drawAt);
+    assert.equal(again.drawDue, false);
+    const repeat = await runDraw(drawAt);
+    assert.equal(repeat.alreadyDrawn, true);
+    assert.equal(repeat.winner.entryRef, drawn.winner.entryRef);
     assert.equal(again.lastWinner.label, drawn.winner.label);
     assert.equal(again.lastWinner.entryRef, drawn.winner.entryRef);
     assert.match(again.history[1].label, /^S\.S\. - Entry [0-9A-F]{6}$/);
@@ -295,15 +320,18 @@ test("mock mode serves sample members without Wix credentials", async () => {
       drawn.winner.label
     );
 
-    const fromCookie = await getPublicState([
-      {
-        winnerName: "Sample Member Cookie",
-        winnerMemberId: "mock-cookie",
-        drawnAt: "2099-01-01T12:00:00.000Z",
-        entryCount: 4,
-        potAmount: 5,
-      },
-    ]);
+    const fromCookie = await getPublicState(
+      [
+        {
+          winnerName: "Sample Member Cookie",
+          winnerMemberId: "mock-cookie",
+          drawnAt: "2099-01-01T12:00:00.000Z",
+          entryCount: 4,
+          potAmount: 5,
+        },
+      ],
+      drawAt
+    );
     assert.match(fromCookie.lastWinner.label, /^S\.C\. - Entry [0-9A-F]{6}$/);
     assertNoPrivateNames(fromCookie);
   } finally {
@@ -385,6 +413,7 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
     assert.equal(state.activeEntries, 1);
     assert.equal(state.pot, 1.25);
     assert.equal(state.potLabel, "£1.25");
+    assert.equal(state.drawDue, false);
     assert.match(state.nextDrawLabel, /20:00 UK time$/);
     assert.equal(state.entryRefs.length, 1);
     assert.match(state.entryRefs[0], /^[0-9A-F]{6}$/);
@@ -401,7 +430,12 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
     assert.equal(adminDraws.historyAvailable, false);
     assert.deepEqual(adminDraws.draws, []);
 
-    await assert.rejects(runDraw(), new RegExp(HISTORY_UNAVAILABLE_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const cmsMessage = new RegExp(HISTORY_UNAVAILABLE_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    await assert.rejects(runDraw(), cmsMessage);
+    await assert.rejects(
+      ensureMonthlyDraw({ now: new Date("2026-10-01T19:00:00.000Z"), force: false }),
+      cmsMessage
+    );
     assert.equal(
       dataCalls.some((call) => /\/wix-data\/v2\/items$/.test(call.path)),
       false
@@ -421,6 +455,214 @@ test("missing Wix credentials return a clear error", async () => {
   } finally {
     restoreEnv();
   }
+});
+
+function fakeRes() {
+  return {
+    statusCode: 200,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    setHeader() {},
+    send(payload) {
+      this.body = JSON.parse(payload);
+    },
+  };
+}
+
+test("one draw is saved per month even when requests race", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  try {
+    const early = new Date("2026-10-01T18:59:00.000Z");
+    const before = await getPublicState([], early);
+    assert.equal(before.drawDue, false);
+    assert.match(before.lastWinner.label, /^S\.S\. - Entry [0-9A-F]{6}$/);
+    assert.equal(before.history.some((draw) => draw.month === "2026-10"), false);
+
+    const summer = new Date("2026-10-01T19:00:00.000Z");
+    const first = await ensureMonthlyDraw({ now: summer });
+    const second = await ensureMonthlyDraw({ now: summer });
+    assert.equal(first.created, true);
+    assert.equal(first.status, "created");
+    assert.equal(second.created, false);
+    assert.equal(second.record.entryRef, first.record.entryRef);
+    assert.equal(second.record.memberId, first.record.memberId);
+    assert.equal(first.record.entryCount, 4);
+    assert.equal(first.record.potAmount, 5);
+    assert.equal(first.record.month, "2026-10");
+
+    const after = await getPublicState([], summer);
+    assert.equal(after.drawDue, false);
+    assert.equal(after.lastWinner.entryRef, first.record.entryRef);
+    assert.equal(JSON.stringify(after).includes("Sample Member"), false);
+
+    const winter = new Date("2026-12-01T20:00:00.000Z");
+    const raced = await Promise.all([
+      ensureMonthlyDraw({ now: winter }),
+      ensureMonthlyDraw({ now: winter }),
+    ]);
+    assert.equal(raced[0].record.entryRef, raced[1].record.entryRef);
+    assert.equal(raced.filter((result) => result.created).length, 1);
+
+    const skipped = await ensureMonthlyDraw({ now: new Date("2026-12-01T19:00:00.000Z") });
+    assert.equal(skipped.status, "not-due");
+    assert.equal(skipped.created, false);
+
+    const raw = JSON.parse(await readFile(process.env.MOCK_DRAW_FILE, "utf8"));
+    assert.equal(raw.extra.filter((row) => row.month === "2026-10").length, 1);
+    assert.equal(raw.extra.filter((row) => row.month === "2026-12").length, 1);
+    assert.equal(raw.extra.some((row) => row.month === "2026-11"), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("a conflicting insert keeps the winner already saved", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const saved = {
+    id: "2026-10",
+    data: {
+      memberId: "member-saved",
+      initials: "S.S.",
+      entryRef: "AAAAAA",
+      month: "2026-10",
+      drawnAt: "2026-10-01T19:00:00.000Z",
+      entryCount: 2,
+      potAmount: 2.5,
+    },
+  };
+  let inserts = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/wix-data/v2/items/2026-10")) {
+      return json({ dataItem: saved });
+    }
+    if (path.endsWith("/wix-data/v2/items") && options.method === "POST") {
+      inserts += 1;
+      const body = JSON.parse(options.body);
+      assert.equal(body.dataItem.id, "2026-10");
+      assert.equal(body.dataItem.data.month, "2026-10");
+      return json({ message: "WDE0073: Item already exists" }, 409);
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const result = await insertDrawIfAbsent({
+      memberId: "member-new",
+      initials: "N.N.",
+      entryRef: "BBBBBB",
+      month: "2026-10",
+      drawnAt: "2026-10-01T19:00:01.000Z",
+      entryCount: 9,
+      potAmount: 11.25,
+    });
+    assert.equal(inserts, 1);
+    assert.equal(result.created, false);
+    assert.equal(result.record.entryRef, "AAAAAA");
+    assert.equal(result.record.memberId, "member-saved");
+    assert.equal(result.record.entryCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("cron auth requires the CRON_SECRET bearer", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.CRON_SECRET;
+  try {
+    assert.throws(() => requireCron({ headers: { authorization: "Bearer secret" } }), (error) => error.status === 503);
+
+    const missing = fakeRes();
+    await cronDraw({ method: "GET", headers: {} }, missing);
+    assert.equal(missing.statusCode, 503);
+
+    process.env.CRON_SECRET = "cron-secret";
+    assert.throws(() => requireCron({ headers: { authorization: "Bearer wrong" } }), (error) => error.status === 401);
+    assert.throws(() => requireCron({ headers: {} }), (error) => error.status === 401);
+    assert.doesNotThrow(() => requireCron({ headers: { authorization: "Bearer cron-secret" } }));
+
+    const wrong = fakeRes();
+    await cronDraw({ method: "GET", headers: { authorization: "Bearer wrong" } }, wrong);
+    assert.equal(wrong.statusCode, 401);
+
+    const winterEarly = fakeRes();
+    await cronDraw(
+      {
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: new Date("2026-12-01T19:00:00.000Z"),
+      },
+      winterEarly
+    );
+    assert.equal(winterEarly.statusCode, 200);
+    assert.equal(winterEarly.body.skipped, true);
+    assert.equal(winterEarly.body.created, false);
+    assert.equal(winterEarly.body.reason, "Before 20:00 UK time on the 1st.");
+
+    const summer = fakeRes();
+    await cronDraw(
+      {
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: new Date("2026-10-01T19:00:00.000Z"),
+      },
+      summer
+    );
+    assert.equal(summer.statusCode, 200);
+    assert.equal(summer.body.created, true);
+    assert.equal(summer.body.month, "2026-10");
+    assert.match(summer.body.entryRef, /^[0-9A-F]{6}$/);
+    assert.equal(summer.body.memberId, undefined);
+    assert.equal(JSON.stringify(summer.body).includes("Sample"), false);
+
+    const again = fakeRes();
+    await cronDraw(
+      {
+        method: "POST",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: new Date("2026-10-01T19:05:00.000Z"),
+      },
+      again
+    );
+    assert.equal(again.statusCode, 200);
+    assert.equal(again.body.created, false);
+    assert.equal(again.body.entryRef, summer.body.entryRef);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("vercel cron covers summer, winter, and late runs", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.deepEqual(
+    config.crons.map((cron) => cron.schedule),
+    ["0 19 1 * *", "0 20 1 * *", "0 21 1 * *", "0 22 1 * *"]
+  );
+  assert.equal(config.crons.every((cron) => cron.path === "/api/cron/draw"), true);
 });
 
 test("admin token accepts the right password only", () => {

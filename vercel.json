@@ -1,4 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "crons": [
+    { "path": "/api/cron/draw", "schedule": "0 19 1 * *" },
+    { "path": "/api/cron/draw", "schedule": "0 20 1 * *" },
+    { "path": "/api/cron/draw", "schedule": "0 21 1 * *" },
+    { "path": "/api/cron/draw", "schedule": "0 22 1 * *" }
+  ]
 }

@@ -11,5 +11,9 @@ export default asyncHandler(async (req, res) => {
   requireAdmin(req);
   const result = await runDraw();
   rememberDraw(req, res, result.record);
-  sendJson(res, 200, { mock: result.mock, winner: result.winner });
+  sendJson(res, 200, {
+    mock: result.mock,
+    alreadyDrawn: result.alreadyDrawn,
+    winner: result.winner,
+  });
 });
