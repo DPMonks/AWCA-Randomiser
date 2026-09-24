@@ -95,11 +95,6 @@ export function mountDrum(canvas, hooks = {}) {
       side: THREE.BackSide,
     })
   );
-  const band = new THREE.Mesh(
-    new THREE.TorusGeometry(DRUM_RADIUS * 0.98, 0.035, 12, 64),
-    new THREE.MeshPhongMaterial({ color: 0xf2c14e, shininess: 80 })
-  );
-  band.rotation.x = Math.PI / 2;
   const hatch = new THREE.Mesh(
     new THREE.TorusGeometry(0.28, 0.045, 12, 32),
     new THREE.MeshPhongMaterial({ color: 0xd7a441, shininess: 70 })
@@ -123,7 +118,7 @@ export function mountDrum(canvas, hooks = {}) {
     new THREE.MeshPhongMaterial({ color: 0x16324f, shininess: 30 })
   );
   stand.position.set(0, -1.58, 0);
-  drum.add(shell, rimGlass, band, hatch);
+  drum.add(shell, rimGlass, hatch);
   scene.add(chute, stand);
 
   const world = new World({ gravity: new Vec3(0, -3.2, 0) });

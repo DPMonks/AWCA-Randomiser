@@ -1,5 +1,5 @@
 const HISTORY_UNAVAILABLE_MESSAGE =
-  "Draw history is unavailable: the Wix CMS is not enabled on the site. Enable CMS in the Wix dashboard to save draws.";
+  "Draw history is unavailable because Wix CMS is not added to the site yet. Add CMS in the Wix Editor and save to turn on draw history.";
 
 const notice = document.getElementById("notice");
 const adminForm = document.getElementById("admin-form");
@@ -163,6 +163,11 @@ function setAdminMessage(text) {
   adminMessage.textContent = text || "";
 }
 
+function showExampleNotice(on) {
+  const note = document.getElementById("example-notice");
+  if (note) note.hidden = !on;
+}
+
 function showNotice(kind, text) {
   if (!text) {
     notice.hidden = true;
@@ -298,6 +303,7 @@ function renderState(data) {
     if (nightly) autoplayDraw(nightly);
     else armReplay(data.lastWinner);
   }
+  showExampleNotice(demoMode || data.mock === true);
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
   } else if (unavailable) {
@@ -516,6 +522,7 @@ function demoNightRefs(count) {
 
 function startDemoNight(seconds) {
   document.body.classList.add("demo-night");
+  showExampleNotice(true);
   const controls = document.getElementById("demo-controls");
   if (controls) controls.hidden = true;
   const refs = demoNightRefs(40);
@@ -570,6 +577,7 @@ function startDemo() {
   const admin = document.querySelector(".awca-admin-wrap");
   if (admin) admin.hidden = true;
   showNotice("demo", "Demo - example data");
+  showExampleNotice(true);
   const seconds = demoCountdownSeconds();
   if (seconds) {
     startDemoNight(seconds);

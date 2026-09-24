@@ -292,6 +292,11 @@ body {
   margin-top: 1rem;
 }
 
+.awca-demo[hidden],
+#example-notice[hidden] {
+  display: none !important;
+}
+
 .awca-demo input[type="range"],
 #past-winners {
   width: 100%;
