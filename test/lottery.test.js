@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { mkdtemp, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +8,10 @@ import { issueToken, passwordMatches, verifyToken } from "../lib/auth.js";
 import { pickWinner } from "../lib/draw.js";
 import { activeEntrants, buildMembers } from "../lib/entrants.js";
 import { formatUkDate, nextDrawDate, potFor } from "../lib/format.js";
-import { getPublicState, runDraw } from "../lib/lottery.js";
+import { getAdminDraws, getMemberList, getPublicState, runDraw } from "../lib/lottery.js";
 import { selectLotteryPlan } from "../lib/plans.js";
+import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
+import { drawCollectionSpec, toDrawRecord } from "../lib/wix.js";
 
 const savedEnv = { ...process.env };
 
@@ -110,36 +113,190 @@ test("members collapse to one row and only active rows are drawn", () => {
   assert.equal(pickWinner([], () => 0), null);
 });
 
+const PRIVATE_NAMES = [
+  "Sample Winner Sam",
+  "Sample Member Ada",
+  "Sample Member Ben",
+  "Sample Member Cleo",
+  "Sample Member Drew",
+  "Sample Member Erin",
+  "Sample Member Fran",
+  "Sample Member Cookie",
+  "Daniel Monks",
+];
+
+function assertNoPrivateNames(value) {
+  const json = JSON.stringify(value);
+  for (const name of PRIVATE_NAMES) {
+    assert.equal(json.includes(name), false, `public payload contains ${name}`);
+  }
+  assert.equal(json.includes("winnerName"), false);
+  assert.equal(json.includes("fullName"), false);
+  assert.equal(json.includes("memberId"), false);
+  assert.equal(json.includes("@"), false);
+}
+
+function assertPublicWinner(draw) {
+  assert.equal("name" in draw, false);
+  assert.equal("fullName" in draw, false);
+  assert.equal("memberId" in draw, false);
+  assert.match(draw.entryRef, /^[0-9A-F]{6}$/);
+  assert.match(draw.label, / - Entry [0-9A-F]{6}$/);
+}
+
+test("initials use the first and last name, and hyphenated parts", () => {
+  assert.equal(initialsFromName("Daniel Monks"), "D.M.");
+  assert.equal(initialsFromName("  Daniel   Monks  "), "D.M.");
+  assert.equal(initialsFromName("Sam"), "S.");
+  assert.equal(initialsFromName("Mary-Jane Watson"), "M.J.W.");
+  assert.equal(initialsFromName("Daniel Monks-Smith"), "D.M.S.");
+  assert.equal(initialsFromName("Mary-Jane"), "M.J.");
+  assert.equal(initialsFromName("Jean Luc Picard"), "J.P.");
+  assert.equal(initialsFromName("Anne-Marie Claire-Jones"), "A.M.C.J.");
+  assert.equal(initialsFromName(""), "");
+  assert.equal(initialsFromName("   "), "");
+  assert.equal(initialsFromName("Member"), "");
+  assert.equal(initialsFromName("member"), "");
+  assert.equal(publicWinnerLabel({ initials: "D.M.", entryRef: "4F7A2C" }), "D.M. - Entry 4F7A2C");
+  assert.equal(publicWinnerLabel({ initials: "", entryRef: "4F7A2C" }), "Entry 4F7A2C");
+  assert.equal(publicWinnerLabel({ initials: "Daniel Monks", entryRef: "4F7A2C" }), "Entry 4F7A2C");
+});
+
+test("entry reference is a stable HMAC prefix of the member id", () => {
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.WIX_MOCK;
+  try {
+    const first = entryReference("wix-member-1");
+    const expected = createHmac("sha256", "committee-secret")
+      .update("wix-member-1")
+      .digest("hex")
+      .slice(0, 6)
+      .toUpperCase();
+    assert.equal(first, expected);
+    assert.equal(entryReference("wix-member-1"), first);
+    assert.notEqual(entryReference("wix-member-2"), first);
+    assert.equal(first.includes("wix-member-1"), false);
+
+    process.env.ENTRY_REF_SECRET = "other-secret";
+    assert.notEqual(entryReference("wix-member-1"), first);
+
+    delete process.env.ENTRY_REF_SECRET;
+    process.env.ADMIN_PASSWORD = "admin-pass";
+    const fromAdmin = createHmac("sha256", "admin-pass")
+      .update("wix-member-1")
+      .digest("hex")
+      .slice(0, 6)
+      .toUpperCase();
+    assert.equal(entryReference("wix-member-1"), fromAdmin);
+
+    delete process.env.ADMIN_PASSWORD;
+    process.env.WIX_MOCK = "1";
+    const fromMock = createHmac("sha256", "awca-mock-entry-ref")
+      .update("wix-member-1")
+      .digest("hex")
+      .slice(0, 6)
+      .toUpperCase();
+    assert.equal(entryReference("wix-member-1"), fromMock);
+
+    delete process.env.WIX_MOCK;
+    assert.throws(() => entryReference("wix-member-1"), /ENTRY_REF_SECRET/);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("draw storage keeps initials and an entry reference, not the full name", () => {
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  try {
+    const record = toDrawRecord({
+      data: {
+        winnerName: "Daniel Monks",
+        winnerMemberId: "member-1",
+        drawnAt: "2026-08-01T19:00:00.000Z",
+        entryCount: 4,
+        potAmount: 5,
+      },
+    });
+    assert.equal(record.initials, "D.M.");
+    assert.equal(record.memberId, "member-1");
+    assert.equal(record.month, "2026-08");
+    assert.equal(record.entryRef, entryReference("member-1"));
+    assert.equal("winnerName" in record, false);
+    assert.equal(JSON.stringify(record).includes("Daniel Monks"), false);
+
+    const spec = drawCollectionSpec();
+    assert.equal(spec.permissions.read, "ADMIN");
+    assert.equal(spec.permissions.insert, "ADMIN");
+    assert.equal(spec.permissions.update, "ADMIN");
+    assert.equal(spec.permissions.remove, "ADMIN");
+    assert.equal(spec.fields.some((field) => field.key === "winnerName"), false);
+    assert.deepEqual(
+      spec.fields.map((field) => field.key),
+      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount"]
+    );
+  } finally {
+    restoreEnv();
+  }
+});
+
 test("mock mode serves sample members without Wix credentials", async () => {
   const dir = await mkdtemp(join(tmpdir(), "awca-"));
   process.env.WIX_MOCK = "1";
   process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
   delete process.env.WIX_API_KEY;
   delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
   try {
     const state = await getPublicState();
     assert.equal(state.mock, true);
     assert.equal(state.activeEntries, 4);
     assert.equal(state.pot, 5);
-    assert.equal(state.lastWinner.name, "Sample Winner Sam");
     assert.equal(state.planName, "Sample Lottery Plan");
+    assertPublicWinner(state.lastWinner);
+    assert.match(state.lastWinner.label, /^S\.S\. - Entry [0-9A-F]{6}$/);
+    assertNoPrivateNames(state);
 
     const drawn = await runDraw();
-    assert.match(drawn.winner.name, /^Sample Member /);
+    assert.match(drawn.winner.fullName, /^Sample Member /);
+    assert.match(drawn.winner.label, /^[A-Z](?:\.[A-Z])*\. - Entry [0-9A-F]{6}$/);
+    assert.equal(drawn.winner.entryRef, entryReference(drawn.record.memberId));
+    assert.equal("name" in drawn.winner, false);
+    assert.equal(drawn.record.initials, initialsFromName(drawn.winner.fullName));
+    assert.equal("winnerName" in drawn.record, false);
+    assert.equal(JSON.stringify(drawn.record).includes(drawn.winner.fullName), false);
+
     const again = await getPublicState();
-    assert.equal(again.lastWinner.name, drawn.winner.name);
-    assert.equal(again.history[1].name, "Sample Winner Sam");
+    assert.equal(again.lastWinner.label, drawn.winner.label);
+    assert.equal(again.lastWinner.entryRef, drawn.winner.entryRef);
+    assert.match(again.history[1].label, /^S\.S\. - Entry [0-9A-F]{6}$/);
+    assertNoPrivateNames(again);
+    assert.equal(JSON.stringify(again).includes(drawn.winner.fullName), false);
+
+    const members = await getMemberList();
+    assert.equal(members.members[0].name, "Sample Member Ada");
+    assert.equal(members.members[0].entryRef, entryReference("mock-ada"));
+    assert.equal("memberId" in members.members[0], false);
+
+    const adminDraws = await getAdminDraws();
+    assert.equal(adminDraws.draws.some((draw) => draw.fullName === "Sample Winner Sam"), true);
+    assert.equal(
+      adminDraws.draws.find((draw) => draw.fullName === drawn.winner.fullName)?.label,
+      drawn.winner.label
+    );
 
     const fromCookie = await getPublicState([
       {
         winnerName: "Sample Member Cookie",
         winnerMemberId: "mock-cookie",
-        drawnAt: "2026-09-24T12:00:00.000Z",
+        drawnAt: "2099-01-01T12:00:00.000Z",
         entryCount: 4,
         potAmount: 5,
       },
     ]);
-    assert.equal(fromCookie.lastWinner.name, "Sample Member Cookie");
+    assert.match(fromCookie.lastWinner.label, /^S\.C\. - Entry [0-9A-F]{6}$/);
+    assertNoPrivateNames(fromCookie);
   } finally {
     restoreEnv();
   }

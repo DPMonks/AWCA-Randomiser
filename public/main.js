@@ -41,7 +41,7 @@ function renderHistory(history) {
   }
   for (const draw of history) {
     const item = document.createElement("li");
-    item.textContent = `${draw.name}, ${draw.drawnAtLabel}. ${draw.entryCount} entries, pot ${draw.potLabel}.`;
+    item.textContent = `${draw.label}, ${draw.drawnAtLabel}. ${draw.entryCount} entries, pot ${draw.potLabel}.`;
     list.append(item);
   }
 }
@@ -51,7 +51,7 @@ function renderState(data) {
   document.getElementById("total-winnings").textContent = data.potLabel || "Unavailable";
   document.getElementById("next-draw").textContent = data.nextDrawLabel || "Unavailable";
   if (data.lastWinner) {
-    document.getElementById("last-winner-name").textContent = data.lastWinner.name;
+    document.getElementById("last-winner-name").textContent = data.lastWinner.label;
     document.getElementById("last-winner-meta").textContent = data.lastWinner.drawnAtLabel;
   } else {
     document.getElementById("last-winner-name").textContent = "No winner yet";
@@ -85,13 +85,41 @@ async function loadState() {
   }
 }
 
+function renderAdminHistory(draws) {
+  const list = document.getElementById("admin-history");
+  if (!list) return;
+  list.replaceChildren();
+  if (!draws || draws.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No draws yet.";
+    list.append(item);
+    return;
+  }
+  for (const draw of draws) {
+    const item = document.createElement("li");
+    const who = draw.fullName ? `${draw.fullName}, ${draw.label}` : draw.label;
+    item.textContent = `${who}, ${draw.drawnAtLabel}.`;
+    list.append(item);
+  }
+}
+
+async function loadAdminDraws() {
+  const response = await fetch("/api/draws", { headers: { Accept: "application/json" } });
+  const data = await readJson(response);
+  if (!response.ok) {
+    setAdminMessage(data.error || "The draw record could not be loaded.");
+    return;
+  }
+  renderAdminHistory(data.draws);
+}
+
 function renderMembers(members) {
   const body = document.getElementById("member-rows");
   body.replaceChildren();
   if (!members || members.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.textContent = "No lottery plan members were found.";
     row.append(cell);
     body.append(row);
@@ -99,7 +127,7 @@ function renderMembers(members) {
   }
   for (const member of members) {
     const row = document.createElement("tr");
-    for (const value of [member.name, member.status, member.startLabel, member.endLabel]) {
+    for (const value of [member.name, member.entryRef, member.status, member.startLabel, member.endLabel]) {
       const cell = document.createElement("td");
       cell.textContent = value || "None";
       row.append(cell);
@@ -130,6 +158,7 @@ async function loadMembers() {
   adminForm.hidden = true;
   adminTools.hidden = false;
   renderMembers(data.members);
+  await loadAdminDraws();
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
   }
@@ -176,8 +205,10 @@ drawButton.addEventListener("click", async () => {
       drawResult.textContent = data.error || "The draw could not be completed.";
       return;
     }
-    drawResult.textContent = `Winner: ${data.winner.name}. Drawn ${data.winner.drawnAtLabel}.`;
+    const name = data.winner.fullName || data.winner.label;
+    drawResult.textContent = `Winner: ${name}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
     await loadState();
+    await loadAdminDraws();
   } catch (error) {
     console.error(error);
     showNotice("error", "The draw could not be completed.");
