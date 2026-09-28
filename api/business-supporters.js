@@ -3,7 +3,7 @@ import { getBusinessSupporters, toPublicSupporter } from "../lib/business.js";
 import { listOrdersForPlan, listPlans } from "../lib/wix.js";
 
 // New subscribers show up within about 5 minutes.
-export const BUSINESS_CACHE_CONTROL = "public, max-age=0, s-maxage=300, stale-while-revalidate=600";
+export const BUSINESS_CACHE_CONTROL = "public, max-age=0, s-maxage=300, stale-while-revalidate=0";
 
 export function createHandler(deps = { listPlans, listOrdersForPlan }) {
   return asyncHandler(async (req, res) => {

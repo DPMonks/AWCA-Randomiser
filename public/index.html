@@ -24,6 +24,11 @@
   </div>
 </header>
 
+<section class="awca-sponsor" id="draw-supporters" hidden>
+  <h2>This month's draw is supported by</h2>
+  <ul id="draw-supporters-list"></ul>
+</section>
+
 <div class="awca-notice" id="notice" hidden></div>
 
 <main class="awca-main">
@@ -133,6 +138,28 @@
         </table>
       </div>
       <div class="awca-result">
+        <h3>Business subscriptions</h3>
+        <p class="awca-subtext">Active business members stay on the public pages. Ended, paused, and failed payments come off. Views and clicks are this month, with no cookies.</p>
+        <p id="business-subscription-message" class="awca-subtext" hidden></p>
+        <div class="awca-table-wrap">
+          <table class="awca-table">
+            <thead>
+              <tr>
+                <th>Business</th>
+                <th>Website</th>
+                <th>Status</th>
+                <th>Start date</th>
+                <th>End date or next renewal</th>
+                <th>On the site</th>
+                <th>Views this month</th>
+                <th>Clicks this month</th>
+              </tr>
+            </thead>
+            <tbody id="business-subscription-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="awca-result">
         <h3>Community members</h3>
         <p class="awca-subtext">Every site member, not only lottery subscribers. Names and emails stay in this admin section.</p>
         <p id="community-message" class="awca-subtext" hidden></p>
@@ -164,6 +191,7 @@
   <p>&copy; AWCA Lottery, Alconbury Weald Community</p>
 </footer>
 
+<script src="/biz-beacon.js"></script>
 <script type="importmap">
 {
   "imports": {

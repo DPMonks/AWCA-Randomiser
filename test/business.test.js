@@ -182,6 +182,7 @@ test("business embed can be framed by Wix and nothing else is opened up", () => 
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   const deny = config.headers.find((h) => h.source.startsWith("/((?!"));
   assert.ok(deny.source.includes("business-embed"));
+  assert.ok(deny.source.includes("business-spotlight"));
   assert.ok(deny.source.includes("winners-embed"));
   for (const source of ["/business-embed", "/business-embed/(.*)"]) {
     const rule = config.headers.find((h) => h.source === source);

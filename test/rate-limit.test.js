@@ -7,6 +7,7 @@ import membersApi from "../api/members.js";
 import communityApi from "../api/community-members.js";
 import drawApi from "../api/draw.js";
 import drawsApi from "../api/draws.js";
+import subscriptionsApi from "../api/business-subscriptions.js";
 import { kvStore } from "../lib/kv.js";
 import {
   LOCK_MESSAGE,
@@ -160,6 +161,7 @@ test("protected admin routes return 429 with Retry-After while the address is lo
     [communityApi, "GET"],
     [drawsApi, "GET"],
     [drawApi, "POST"],
+    [subscriptionsApi, "GET"],
   ];
   try {
     for (const [handler, method] of routes) {

@@ -71,7 +71,8 @@ function jsonLd(html) {
 test("a business page is server HTML with SEO tags, schema, and no private data", () => {
   const [supporter] = buildSupporters([order()], { planId: PLAN_ID });
   const html = renderBusinessPage({ ...supporter, email: EMAIL, memberId: "member-private-1", first_name: "Jane" });
-  assert.equal(html.includes("<script src="), false);
+  assert.match(html, /<script src="\/biz-beacon\.js"><\/script>/);
+  assert.equal(html.replace('<script src="/biz-beacon.js"></script>', "").includes("<script src="), false);
   assert.match(html, /<title>Weald Coffee Co \| Alconbury Weald business supporter<\/title>/);
   assert.equal(businessPageTitle(supporter.name), "Weald Coffee Co | Alconbury Weald business supporter");
   assert.match(html, /<meta name="description" content="Weald Coffee Co is an AWCA Business Membership supporter in Alconbury Weald, Huntingdon, Cambridgeshire\." \/>/);

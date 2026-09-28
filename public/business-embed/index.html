@@ -172,6 +172,7 @@
       <p class="more"><a href="/businesses" target="_blank" rel="noopener">View all business supporters</a></p>
     </section>
   </main>
+  <script src="/biz-beacon.js"></script>
   <script>
     const EXAMPLE = [
       { name: "Weald Coffee Co", logoUrl: null, slug: "weald-coffee-co" },
@@ -253,13 +254,17 @@
           link.href = `/businesses/${encodeURIComponent(item.slug)}`;
           link.target = "_blank";
           link.rel = "noopener";
+          link.setAttribute("data-business-click", item.slug);
           link.append(logo, name);
           li.append(link);
+          li.setAttribute("data-business-view", item.slug);
         } else {
           li.append(logo, name);
         }
         grid.append(li);
       }
+      const slugs = supporters.map((item) => item.slug).filter(Boolean);
+      if (window.awcaRecordViews) window.awcaRecordViews(slugs);
     }
 
     async function load() {

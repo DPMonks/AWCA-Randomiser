@@ -30,7 +30,7 @@
       ]
     },
     {
-      "source": "/((?!winners-embed)(?!business-embed)(?!businesses).*)",
+      "source": "/((?!winners-embed)(?!business-embed)(?!business-spotlight)(?!businesses).*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
@@ -38,7 +38,7 @@
         { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
         { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-XJjQ99ii7Je6fIz/GejS70pbMDRxIEL1DAErAh9bENQ='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-XJjQ99ii7Je6fIz/GejS70pbMDRxIEL1DAErAh9bENQ='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" }
       ]
     },
     {
@@ -79,7 +79,7 @@
         { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-4VM3HDZNkuFUZEtUSAPt9FHhwi49mCL+EtwF7acvfUs='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+          "value": "default-src 'self'; script-src 'self' 'sha256-RCh93COVvuyRmRvFqn2PBVIfzQhRwx2NqM/wViAOhTc='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
         }
       ]
     },
@@ -93,7 +93,35 @@
         { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'sha256-4VM3HDZNkuFUZEtUSAPt9FHhwi49mCL+EtwF7acvfUs='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+          "value": "default-src 'self'; script-src 'self' 'sha256-RCh93COVvuyRmRvFqn2PBVIfzQhRwx2NqM/wViAOhTc='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+        }
+      ]
+    },
+    {
+      "source": "/business-spotlight",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+        }
+      ]
+    },
+    {
+      "source": "/business-spotlight/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
         }
       ]
     },
@@ -135,7 +163,8 @@
   "rewrites": [
     { "source": "/businesses", "destination": "/api/business-directory" },
     { "source": "/businesses/:slug", "destination": "/api/business-directory?slug=:slug" },
-    { "source": "/sitemap.xml", "destination": "/api/sitemap" }
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/go/:slug", "destination": "/api/business-go?slug=:slug" }
   ],
   "crons": [
     { "path": "/api/cron/draw", "schedule": "0 19 1 * *" },
