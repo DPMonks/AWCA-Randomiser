@@ -243,24 +243,63 @@ function waitingForResult(data) {
   return Number.isFinite(target) && Date.now() >= target;
 }
 
+function setDigit(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(value).padStart(2, "0");
+}
+
+function paintDrumCountdown(remainMs, mode) {
+  const root = document.getElementById("drum-countdown");
+  const label = document.getElementById("drum-countdown-label");
+  const digits = document.getElementById("drum-countdown-digits");
+  const status = document.getElementById("drum-countdown-status");
+  if (!root || !label || !digits || !status) return;
+  if (mode === "progress") {
+    label.hidden = true;
+    digits.hidden = true;
+    status.hidden = false;
+    status.textContent = "Draw in progress";
+    root.setAttribute("aria-label", "Draw in progress");
+    return;
+  }
+  const total = Math.max(0, Math.floor(Number(remainMs) / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  label.hidden = false;
+  label.textContent = "Next draw in";
+  digits.hidden = false;
+  status.hidden = true;
+  setDigit("cd-days", days);
+  setDigit("cd-hours", hours);
+  setDigit("cd-minutes", minutes);
+  setDigit("cd-seconds", seconds);
+  root.setAttribute(
+    "aria-label",
+    `Next draw in ${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`
+  );
+}
+
 function paintCountdown() {
   const el = document.getElementById("draw-countdown");
-  if (!el || demoMode || !latestState) return;
-  if (latestState.historyAvailable === false) {
-    el.textContent = "";
-    return;
-  }
-  if (waitingForResult(latestState)) {
-    el.textContent = "Drawing now";
-    return;
-  }
+  if (demoMode || !latestState) return;
   const target = Date.parse(latestState.nextDraw || "");
-  if (!Number.isFinite(target)) {
-    el.textContent = "";
-    return;
+  const historyOff = latestState.historyAvailable === false;
+  const waiting = waitingForResult(latestState);
+  if (el) {
+    if (historyOff) el.textContent = "";
+    else if (waiting) el.textContent = "Drawing now";
+    else if (!Number.isFinite(target)) el.textContent = "";
+    else {
+      const remain = target - Date.now();
+      el.textContent = remain <= 0 ? "Drawing now" : formatRemain(remain);
+    }
   }
+  if (!Number.isFinite(target)) return;
   const remain = target - Date.now();
-  el.textContent = remain <= 0 ? "Drawing now" : formatRemain(remain);
+  if (waiting || (!historyOff && remain <= 0)) paintDrumCountdown(0, "progress");
+  else paintDrumCountdown(remain, "count");
 }
 
 function ensureCountdown() {
@@ -555,9 +594,11 @@ function startDemoNight(seconds) {
     const remain = target - Date.now();
     if (remain > 0) {
       countdown.textContent = formatRemain(remain);
+      paintDrumCountdown(remain, "count");
       return;
     }
     countdown.textContent = "Drawing now";
+    paintDrumCountdown(0, "progress");
     if (drew) return;
     drew = true;
     window.setTimeout(() => {
@@ -597,6 +638,14 @@ function startDemo() {
   document.getElementById("next-draw").textContent = "1 October 2026, 20:00 UK time";
   const countdown = document.getElementById("draw-countdown");
   if (countdown) countdown.textContent = "";
+  const demoTarget = Date.parse("2026-10-01T19:00:00.000Z");
+  const tickDemoClock = () => {
+    const remain = demoTarget - Date.now();
+    if (remain <= 0) paintDrumCountdown(0, "progress");
+    else paintDrumCountdown(remain, "count");
+  };
+  tickDemoClock();
+  window.setInterval(tickDemoClock, 1000);
   document.getElementById("last-winner-name").textContent = "No winner yet";
   document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
   renderPastWinners([

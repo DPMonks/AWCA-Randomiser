@@ -746,6 +746,24 @@ test("the drum source has no gold ring mesh", async () => {
   assert.match(source, /function frameCamera/);
 });
 
+test("the drum countdown uses the server next draw time", async () => {
+  const source = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /id="drum-countdown"/);
+  assert.match(html, /Next draw in/);
+  assert.match(html, /Draw in progress/);
+  assert.match(html, />Days</);
+  assert.match(html, />Hours</);
+  assert.match(html, />Minutes</);
+  assert.match(html, />Seconds</);
+  const live = source.slice(source.indexOf("function paintCountdown"), source.indexOf("function ensureCountdown"));
+  assert.match(live, /latestState\.nextDraw/);
+  assert.match(live, /paintDrumCountdown\(0, "progress"\)/);
+  assert.match(live, /paintDrumCountdown\(remain, "count"\)/);
+  assert.equal(live.includes("nextDrawDate"), false);
+  assert.equal(/[\u2013\u2014]/.test(html + source), false);
+});
+
 test("demo countdown rehearses draw night without calling the server", async () => {
   const source = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
   assert.match(source, /demo=1&countdown=10|countdown/);
