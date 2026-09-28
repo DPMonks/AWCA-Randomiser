@@ -153,9 +153,12 @@ function applyHistoryAvailability(data) {
   return message;
 }
 
-function setAdminMessage(text) {
+const TOO_MANY_ATTEMPTS = "Too many attempts. Please try again in 15 minutes.";
+
+function setAdminMessage(text, tone) {
   adminMessage.hidden = !text;
   adminMessage.textContent = text || "";
+  adminMessage.classList.toggle("is-alert", Boolean(text) && tone === "alert");
 }
 
 function showExampleNotice(on) {
@@ -529,6 +532,12 @@ async function loadMembers() {
     adminTools.hidden = true;
     return;
   }
+  if (response.status === 429) {
+    adminForm.hidden = false;
+    adminTools.hidden = true;
+    setAdminMessage(data.error || TOO_MANY_ATTEMPTS, "alert");
+    return;
+  }
   if (response.status === 503) {
     adminForm.hidden = false;
     adminTools.hidden = true;
@@ -561,6 +570,10 @@ adminForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ password }),
     });
     const data = await readJson(response);
+    if (response.status === 429) {
+      setAdminMessage(data.error || TOO_MANY_ATTEMPTS, "alert");
+      return;
+    }
     if (!response.ok) {
       setAdminMessage(data.error || "Sign-in failed.");
       return;

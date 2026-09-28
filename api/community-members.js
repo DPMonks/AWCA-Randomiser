@@ -7,6 +7,6 @@ export default asyncHandler(async (req, res) => {
     sendJson(res, 405, { error: "Method not allowed" });
     return;
   }
-  requireAdmin(req);
+  await requireAdmin(req);
   sendJson(res, 200, await getCommunityMembers());
 });

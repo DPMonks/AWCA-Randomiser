@@ -8,7 +8,7 @@ export default asyncHandler(async (req, res) => {
     sendJson(res, 405, { error: "Method not allowed" });
     return;
   }
-  requireAdmin(req);
+  await requireAdmin(req);
   const result = await runDraw();
   rememberDraw(req, res, result.record);
   sendJson(res, 200, {
