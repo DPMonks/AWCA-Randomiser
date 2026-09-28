@@ -1,0 +1,7 @@
+User-agent: *
+Disallow: /api/
+Disallow: /admin
+Allow: /
+Allow: /businesses
+
+Sitemap: https://lottery.alconbury-weald.org/sitemap.xml

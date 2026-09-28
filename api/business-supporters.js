@@ -1,5 +1,5 @@
 import { asyncHandler, sendJson } from "../lib/http.js";
-import { getBusinessSupporters } from "../lib/business.js";
+import { getBusinessSupporters, toPublicSupporter } from "../lib/business.js";
 import { listOrdersForPlan, listPlans } from "../lib/wix.js";
 
 // New subscribers show up within about 5 minutes.
@@ -19,7 +19,10 @@ export function createHandler(deps = { listPlans, listOrdersForPlan }) {
       sendJson(res, 200, { available: false, supporters: [] }, { cacheControl: "no-store" });
       return;
     }
-    sendJson(res, 200, body, { cacheControl: BUSINESS_CACHE_CONTROL });
+    sendJson(res, 200, {
+      available: body.available,
+      supporters: (body.supporters || []).map(toPublicSupporter),
+    }, { cacheControl: BUSINESS_CACHE_CONTROL });
   });
 }
 
