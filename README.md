@@ -15,8 +15,12 @@ Set these on the Vercel project. Do not put them in the browser, and do not comm
 | `CRON_SECRET` | Yes, for the automatic draw | Vercel sends `Authorization: Bearer` plus this secret to `/api/cron/draw`. The route returns 503 if it is missing. |
 | `ENTRY_REF_SECRET` | No | Secret for public entry references. If empty, `ADMIN_PASSWORD` is used. Do not change it after the first draw. |
 | `WIX_MOCK` | No | Set to `1` to show obviously fake sample members and skip Wix. Use this on a preview when credentials are not ready. |
+| `KV_REST_API_URL` | No | REST address for Vercel KV or Upstash Redis. Used to pause admin sign-in after repeated wrong passwords. `UPSTASH_REDIS_REST_URL` is also accepted. |
+| `KV_REST_API_TOKEN` | No | Token for that store. `UPSTASH_REDIS_REST_TOKEN` is also accepted. If the store is missing or down, admin sign-in still checks the password. |
 
 If `WIX_API_KEY` or `WIX_SITE_ID` is missing, and mock mode is off, the page shows an error instead of crashing.
+
+Wrong admin passwords are limited to 5 attempts in 15 minutes for each address. The address comes from `x-forwarded-for` or `x-real-ip`, and only a hash of it is stored. A paused sign-in returns HTTP 429 with `Retry-After` and the message "Too many attempts. Please try again in 15 minutes." A correct password clears the count. The same pause applies to the member list, community members, and draw routes. The limit uses the KV store above and is skipped if that store cannot be reached. The password is still checked.
 
 The public site response currently includes meta site id `00d28da8-27ea-4fd0-9272-351423f10120`. Confirm it in the Wix dashboard before saving `WIX_SITE_ID`. The dashboard address for the site usually contains the same id.
 
@@ -93,7 +97,9 @@ https://lottery.alconbury-weald.org/winners-embed
 
 Use a width of about 600 pixels and a height of about 320 pixels. The card fits from about 120 pixels tall, when there are no draws yet, to about 400 pixels once a winner and the fairness check are on screen. On a phone the card uses the full iframe width.
 
-Only that embed page can be placed in a frame, and only by `https://www.alconbury-weald.org`, `https://alconbury-weald.org`, `https://*.wix.com`, `https://*.wixsite.com`, `https://*.filesusr.com`, and `https://*.wixstatic.com`. The lottery page itself, including the admin sign-in, sends `frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+Only the winners embed and the business embed can be placed in a frame, and only by `https://www.alconbury-weald.org`, `https://alconbury-weald.org`, `https://*.wix.com`, `https://*.wixsite.com`, `https://*.filesusr.com`, and `https://*.wixstatic.com`. The lottery page itself, including the admin sign-in, sends `frame-ancestors 'none'` and `X-Frame-Options: DENY`. Those two embeds do not send `X-Frame-Options`.
+
+Every route also sends `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`, `Cross-Origin-Opener-Policy: same-origin`, and `Strict-Transport-Security: max-age=63072000; includeSubDomains`. The content security policy uses `default-src 'self'`. Scripts may load from this site. The home page may also load three.js and cannon-es from `https://cdn.jsdelivr.net`. Styles may be inline. Business logos may load from `wixstatic.com`, `usrfiles.com`, and `wixmp.com`.
 
 `GET /api/winners` is public. A successful response is cached at the CDN for 5 minutes (`s-maxage=300`). It returns the month, the public label, the pot, the entry count, the drawn-at time, and the fairness fingerprint when one was stored. It does not return full names, member ids, or emails.
 

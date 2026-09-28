@@ -7,58 +7,93 @@
       "headers": [
         { "key": "Content-Type", "value": "application/manifest+json" },
         { "key": "Cache-Control", "value": "public, max-age=86400, s-maxage=604800" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-XJjQ99ii7Je6fIz/GejS70pbMDRxIEL1DAErAh9bENQ='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" }
       ]
     },
     {
       "source": "/(favicon.ico|favicon-32x32.png|apple-touch-icon.png|icon-192.png|icon-512.png)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=86400, s-maxage=604800" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-XJjQ99ii7Je6fIz/GejS70pbMDRxIEL1DAErAh9bENQ='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" }
       ]
     },
     {
       "source": "/((?!winners-embed)(?!business-embed).*)",
       "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-XJjQ99ii7Je6fIz/GejS70pbMDRxIEL1DAErAh9bENQ='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" }
       ]
     },
     {
       "source": "/winners-embed",
       "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+          "value": "default-src 'self'; script-src 'self' 'sha256-uehG8dUM72jHs+JQlO3esma16bcCKjJaiV/6116OJpo='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
         }
       ]
     },
     {
       "source": "/winners-embed/(.*)",
       "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+          "value": "default-src 'self'; script-src 'self' 'sha256-uehG8dUM72jHs+JQlO3esma16bcCKjJaiV/6116OJpo='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
         }
       ]
     },
     {
       "source": "/business-embed",
       "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+          "value": "default-src 'self'; script-src 'self' 'sha256-SURlSDgMFrQOtn/2IJ6J/+5kpLM1Ad5CNFpMNrnkgLA='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
         }
       ]
     },
     {
       "source": "/business-embed/(.*)",
       "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
+          "value": "default-src 'self'; script-src 'self' 'sha256-SURlSDgMFrQOtn/2IJ6J/+5kpLM1Ad5CNFpMNrnkgLA='; style-src 'self' 'unsafe-inline'; img-src 'self' https://static.wixstatic.com https://*.wixstatic.com https://*.usrfiles.com https://*.wixmp.com; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com"
         }
       ]
     }

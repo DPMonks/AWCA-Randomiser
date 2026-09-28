@@ -1775,17 +1775,30 @@ test("a saved draw keeps the month as the item id and stores the fingerprint", a
 const EMBED_FRAME_ANCESTORS =
   "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com";
 
+function cspDirective(csp, name) {
+  const parts = String(csp || "").split(";").map((part) => part.trim()).filter(Boolean);
+  return parts.find((part) => part === name || part.startsWith(`${name} `)) || "";
+}
+
 test("only the winners embed can be framed, and only by the Wix site", async () => {
   const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
   const embed = config.headers.find((rule) => rule.source === "/winners-embed");
   const embedCsp = embed.headers.find((header) => header.key === "Content-Security-Policy").value;
-  assert.equal(embedCsp, EMBED_FRAME_ANCESTORS);
+  assert.equal(cspDirective(embedCsp, "frame-ancestors"), EMBED_FRAME_ANCESTORS);
   assert.equal(embed.headers.some((header) => header.key === "X-Frame-Options"), false);
   const nested = config.headers.find((rule) => rule.source === "/winners-embed/(.*)");
-  assert.equal(nested.headers.find((header) => header.key === "Content-Security-Policy").value, EMBED_FRAME_ANCESTORS);
+  assert.equal(cspDirective(nested.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors"), EMBED_FRAME_ANCESTORS);
   const deny = config.headers.find((rule) => rule.source.includes("(?!winners-embed)"));
-  assert.equal(deny.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors 'none'");
+  assert.equal(cspDirective(deny.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors"), "frame-ancestors 'none'");
   assert.equal(deny.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
+  for (const source of ["/business-embed", "/business-embed/(.*)"]) {
+    const rule = config.headers.find((item) => item.source === source);
+    assert.equal(rule.headers.some((header) => header.key === "X-Frame-Options"), false);
+    assert.equal(
+      cspDirective(rule.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors"),
+      EMBED_FRAME_ANCESTORS
+    );
+  }
 });
 
 test("the AWCA favicon is linked on every page and cached", async () => {

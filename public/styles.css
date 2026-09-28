@@ -153,6 +153,14 @@ body {
   font-size: 0.85rem;
 }
 
+#admin-message.is-alert {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  background: #fde8e8;
+  color: #7f1d1d;
+}
+
 .awca-history {
   margin: 0;
   padding-left: 1.2rem;
