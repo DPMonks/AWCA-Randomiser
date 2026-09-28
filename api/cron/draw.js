@@ -16,7 +16,7 @@ export default asyncHandler(async (req, res) => {
       ok: true,
       created: false,
       skipped: true,
-      reason: "Before 20:00 UK time on the 1st.",
+      reason: result.reason || "Before 20:00 UK time on the 1st.",
     });
     return;
   }

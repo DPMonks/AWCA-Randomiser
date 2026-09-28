@@ -51,6 +51,8 @@ If you leave that variable empty, the server logs a line like `AWCA lottery plan
 
 Only orders whose status is `ACTIVE` go into the draw, one entry per member. Cancelled, ended, paused, pending, and draft orders stay on the admin list and are not drawn.
 
+An active order can also have auto-renew cancelled, with `cancellation.effectiveAt` set to `NEXT_PAYMENT_DATE`. That member has paid until the next payment date. They stay in the draw by default. Set `EXCLUDE_PENDING_CANCELLATION` to `1` to leave them off the draw while still listing them for the committee. Leave the variable unset, or set it to `0`, to keep the default.
+
 ## Public winners and entry references
 
 The public page, the public draw history, and `GET /api/state` never include a winner's full name or email. A winner is shown as initials plus an entry reference, for example `D.M. - Entry 4F7A2C`.
@@ -95,7 +97,9 @@ Open `/winners-embed?example=1` to preview three fake winners. That preview show
 
 The draw runs at 20:00 Europe/London on the 1st of every month. During British Summer Time that instant is 19:00 UTC. During Greenwich Mean Time it is 20:00 UTC. 1 October 2026 20:00 BST is 19:00 UTC. 1 December 2026 20:00 GMT is 20:00 UTC.
 
-Vercel cron is scheduled in UTC and can run late on the Hobby plan. `vercel.json` calls `/api/cron/draw` at 19:00, 20:00, 21:00, and 22:00 UTC on day 1. The handler draws only when London time is on or after 20:00 on the 1st, and only when that month has no saved draw. A call before 20:00 UK time returns 200 and does not draw. Set `CRON_SECRET`. Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
+The automatic draw, from cron and from a visit to the public page, runs only in the 24 hours after that instant. A late cron or a visitor on the morning of the 2nd can still catch the same month. After that window the month is left without an automatic draw. A later visit must not back-fill it, including when draw storage was offline on the 1st and only comes online mid-month. Draw Winner remains the manual fallback and can still save the current month if the committee chooses to.
+
+Vercel cron is scheduled in UTC and can run late on the Hobby plan. `vercel.json` calls `/api/cron/draw` at 19:00, 20:00, 21:00, and 22:00 UTC on day 1. The handler draws only inside that 24 hour window, and only when that month has no saved draw. A call before 20:00 UK time, or after the window has closed, returns 200 and does not draw. Set `CRON_SECRET`. Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
 
 `GET /api/state` runs the same draw if the month is due and no result is saved yet, so a late cron does not hold the result back. The public page counts down to the next 20:00 UK time. At that time it shows "Drawing now", polls `/api/state`, and plays the drum as soon as the saved result exists. Later visitors in the same month see the drum once, then Replay.
 

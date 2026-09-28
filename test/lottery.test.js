@@ -8,9 +8,9 @@ import cronDraw from "../api/cron/draw.js";
 import winnersApi from "../api/winners.js";
 import { issueToken, passwordMatches, requireCron, verifyToken } from "../lib/auth.js";
 import { pickWinner } from "../lib/draw.js";
-import { activeEntrants, buildMembers } from "../lib/entrants.js";
+import { activeEntrants, buildMembers, isPendingCancellation } from "../lib/entrants.js";
 import { drawFingerprint, hashEntrantRefs, sortedEntryRefs } from "../lib/fairness.js";
-import { formatUkDate, isDrawDue, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
+import { DRAW_CATCHUP_MS, formatUkDate, isDrawDue, isWithinDrawWindow, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
 import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, getPublicWinners, runDraw } from "../lib/lottery.js";
 import { CMS_NOT_INSTALLED_MESSAGE, HISTORY_UNAVAILABLE_MESSAGE, historyUnavailableMessage } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
@@ -53,6 +53,29 @@ test("next draw is 20:00 UK time on the 1st", () => {
 
   const later = nextDrawDate(new Date("2026-09-24T08:00:00.000Z"));
   assert.equal(formatUkDate(later, { withTime: true }), "1 October 2026, 20:00 UK time");
+});
+
+test("automatic draw window is the 24 hours after 20:00 UK on the 1st", () => {
+  assert.equal(DRAW_CATCHUP_MS, 24 * 60 * 60 * 1000);
+
+  const septemberOpen = new Date("2026-09-01T19:00:00.000Z");
+  const septemberLate = new Date("2026-09-02T18:59:00.000Z");
+  const septemberClosed = new Date("2026-09-02T19:00:00.000Z");
+  const septemberMidMonth = new Date("2026-09-28T19:44:41.000Z");
+  assert.equal(isWithinDrawWindow(new Date("2026-09-01T18:59:00.000Z")), false);
+  assert.equal(isWithinDrawWindow(septemberOpen), true);
+  assert.equal(isWithinDrawWindow(septemberLate), true);
+  assert.equal(isWithinDrawWindow(septemberClosed), false);
+  assert.equal(isWithinDrawWindow(septemberMidMonth), false);
+  assert.equal(isDrawDue(septemberMidMonth), true);
+
+  const decemberOpen = new Date("2026-12-01T20:00:00.000Z");
+  const decemberLate = new Date("2026-12-02T19:59:00.000Z");
+  const decemberClosed = new Date("2026-12-02T20:00:00.000Z");
+  assert.equal(isWithinDrawWindow(new Date("2026-12-01T19:59:00.000Z")), false);
+  assert.equal(isWithinDrawWindow(decemberOpen), true);
+  assert.equal(isWithinDrawWindow(decemberLate), true);
+  assert.equal(isWithinDrawWindow(decemberClosed), false);
 });
 
 test("pot is 1.25 per active entry", () => {
@@ -133,6 +156,85 @@ test("members collapse to one row and only active rows are drawn", () => {
   assert.deepEqual(entrants.map((member) => member.memberId), ["ada"]);
   assert.equal(pickWinner(entrants, () => 0).name, "Ada Example");
   assert.equal(pickWinner([], () => 0), null);
+});
+
+function pendingCancelOrder(memberId, effectiveAt, extra = {}) {
+  return {
+    status: "ACTIVE",
+    autoRenewCanceled: true,
+    buyer: { memberId },
+    startDate: "2026-01-01T00:00:00.000Z",
+    updatedDate: "2026-08-01T00:00:00.000Z",
+    cancellation: { effectiveAt },
+    ...extra,
+  };
+}
+
+test("pending cancellation stays an entry unless EXCLUDE_PENDING_CANCELLATION is set", () => {
+  const orders = [
+    pendingCancelOrder("paid", "NEXT_PAYMENT_DATE"),
+    pendingCancelOrder("ended-now", "IMMEDIATELY"),
+    {
+      status: "ACTIVE",
+      autoRenewCanceled: false,
+      buyer: { memberId: "renewing" },
+      startDate: "2026-01-01T00:00:00.000Z",
+      updatedDate: "2026-08-01T00:00:00.000Z",
+      cancellation: { effectiveAt: "NEXT_PAYMENT_DATE" },
+    },
+    {
+      status: "CANCELED",
+      autoRenewCanceled: true,
+      buyer: { memberId: "gone" },
+      startDate: "2026-01-01T00:00:00.000Z",
+      updatedDate: "2026-08-01T00:00:00.000Z",
+      cancellation: { effectiveAt: "NEXT_PAYMENT_DATE", requestedDate: "2026-08-01T00:00:00.000Z" },
+    },
+  ];
+  const names = new Map([
+    ["paid", "Paid Until"],
+    ["ended-now", "Ended Now"],
+    ["renewing", "Still Renewing"],
+    ["gone", "Already Gone"],
+  ]);
+
+  delete process.env.EXCLUDE_PENDING_CANCELLATION;
+  try {
+    assert.equal(isPendingCancellation(orders[0]), true);
+    assert.equal(isPendingCancellation(orders[1]), false);
+    const counted = buildMembers(orders, names);
+    const paid = counted.find((member) => member.memberId === "paid");
+    assert.equal(paid.pendingCancellation, true);
+    assert.equal(paid.active, true);
+    assert.equal(paid.status, "Active, cancels next payment");
+    assert.equal(counted.find((member) => member.memberId === "ended-now").active, true);
+    assert.equal(counted.find((member) => member.memberId === "renewing").active, true);
+    assert.equal(counted.find((member) => member.memberId === "gone").active, false);
+    assert.deepEqual(
+      activeEntrants(counted).map((member) => member.memberId).sort(),
+      ["ended-now", "paid", "renewing"]
+    );
+
+    for (const flag of ["1", "true", "yes", " YES "]) {
+      process.env.EXCLUDE_PENDING_CANCELLATION = flag;
+      const excluded = buildMembers(orders, names);
+      const held = excluded.find((member) => member.memberId === "paid");
+      assert.equal(held.pendingCancellation, true);
+      assert.equal(held.active, false);
+      assert.equal(held.status, "Active, cancels next payment");
+      assert.equal(excluded.find((member) => member.memberId === "ended-now").active, true);
+      assert.equal(excluded.find((member) => member.memberId === "renewing").active, true);
+      assert.deepEqual(
+        activeEntrants(excluded).map((member) => member.memberId).sort(),
+        ["ended-now", "renewing"]
+      );
+    }
+
+    process.env.EXCLUDE_PENDING_CANCELLATION = "0";
+    assert.equal(buildMembers(orders, names).find((member) => member.memberId === "paid").active, true);
+  } finally {
+    restoreEnv();
+  }
 });
 
 const PRIVATE_NAMES = [
@@ -548,6 +650,140 @@ test("one draw is saved per month even when requests race", async () => {
     assert.equal(raw.extra.filter((row) => row.month === "2026-10").length, 1);
     assert.equal(raw.extra.filter((row) => row.month === "2026-12").length, 1);
     assert.equal(raw.extra.some((row) => row.month === "2026-11"), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+async function savedMonths(file) {
+  try {
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    return (raw.extra || []).map((row) => row.month);
+  } catch {
+    return [];
+  }
+}
+
+test("storage coming online mid-month does not back-fill a missed draw", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  const file = join(dir, "draws.json");
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = file;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.CRON_SECRET;
+  try {
+    const late = new Date("2026-09-28T19:44:41.000Z");
+    const state = await getPublicState([], late);
+    assert.equal(state.drawDue, false);
+    assert.equal(state.drawMonth, "2026-09");
+    assert.equal(state.lastWinner.month, "2026-08");
+    assert.equal(state.history.some((draw) => draw.month === "2026-09"), false);
+    assert.equal(state.nextDrawLabel, "1 October 2026, 20:00 UK time");
+    assert.equal(state.nextDraw, "2026-10-01T19:00:00.000Z");
+
+    const skipped = await ensureMonthlyDraw({ now: late, force: false });
+    assert.equal(skipped.status, "not-due");
+    assert.equal(skipped.created, false);
+    assert.equal(skipped.month, "2026-09");
+    assert.equal(skipped.reason, "The catch-up window for this month's draw has closed.");
+
+    process.env.CRON_SECRET = "cron-secret";
+    const cron = fakeRes();
+    await cronDraw(
+      {
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: late,
+      },
+      cron
+    );
+    assert.equal(cron.statusCode, 200);
+    assert.equal(cron.body.skipped, true);
+    assert.equal(cron.body.created, false);
+    assert.equal(cron.body.reason, "The catch-up window for this month's draw has closed.");
+    assert.deepEqual(await savedMonths(file), []);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("the 1st at or after 20:00 UK draws the current month exactly once", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  const file = join(dir, "draws.json");
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = file;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.CRON_SECRET;
+  try {
+    const opening = new Date("2026-09-01T19:00:00.000Z");
+    const first = await getPublicState([], opening);
+    assert.equal(first.drawDue, false);
+    assert.equal(first.lastWinner.month, "2026-09");
+    assert.equal(first.lastWinner.drawnAt, opening.toISOString());
+    assert.match(first.lastWinner.label, /^[A-Z](?:\.[A-Z])*\. - Entry [0-9A-F]{6}$/);
+    assert.equal(first.nextDrawLabel, "1 October 2026, 20:00 UK time");
+
+    const laterThatNight = await getPublicState([], new Date("2026-09-01T21:00:00.000Z"));
+    assert.equal(laterThatNight.lastWinner.entryRef, first.lastWinner.entryRef);
+    assert.equal(laterThatNight.lastWinner.drawnAt, first.lastWinner.drawnAt);
+
+    process.env.CRON_SECRET = "cron-secret";
+    const cron = fakeRes();
+    await cronDraw(
+      {
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: new Date("2026-09-01T22:00:00.000Z"),
+      },
+      cron
+    );
+    assert.equal(cron.body.created, false);
+    assert.equal(cron.body.month, "2026-09");
+    assert.equal(cron.body.entryRef, first.lastWinner.entryRef);
+    assert.deepEqual(await savedMonths(file), ["2026-09"]);
+
+    const morningAfter = await ensureMonthlyDraw({ now: new Date("2026-09-02T18:59:00.000Z"), force: false });
+    assert.equal(morningAfter.created, false);
+    assert.equal(morningAfter.status, "exists");
+    assert.deepEqual(await savedMonths(file), ["2026-09"]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("a fresh month still draws once inside the catch-up window and not after it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  const file = join(dir, "draws.json");
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = file;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  try {
+    const closed = await getPublicState([], new Date("2026-09-02T19:00:00.000Z"));
+    assert.equal(closed.drawDue, false);
+    assert.equal(closed.lastWinner.month, "2026-08");
+    assert.deepEqual(await savedMonths(file), []);
+
+    const caughtUp = await ensureMonthlyDraw({ now: new Date("2026-12-02T19:59:00.000Z"), force: false });
+    assert.equal(caughtUp.created, true);
+    assert.equal(caughtUp.month, "2026-12");
+    const repeat = await ensureMonthlyDraw({ now: new Date("2026-12-02T19:59:30.000Z"), force: false });
+    assert.equal(repeat.created, false);
+    assert.equal(repeat.record.entryRef, caughtUp.record.entryRef);
+
+    const tooLate = await ensureMonthlyDraw({ now: new Date("2026-12-02T20:00:00.000Z"), force: false });
+    assert.equal(tooLate.status, "not-due");
+    assert.equal(tooLate.created, false);
+    assert.deepEqual((await savedMonths(file)).filter((month) => month === "2026-12"), ["2026-12"]);
+    assert.equal((await savedMonths(file)).includes("2026-09"), false);
   } finally {
     restoreEnv();
   }
