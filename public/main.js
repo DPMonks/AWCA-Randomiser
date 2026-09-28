@@ -416,6 +416,102 @@ async function loadAdminDraws() {
   renderAdminHistory(data.draws, unavailable);
 }
 
+let communityMembers = [];
+let communityNotice = "";
+
+function communityPlansText(member) {
+  if (member.plansLabel) return member.plansLabel;
+  if (member.plans && member.plans.length) return member.plans.join(", ");
+  return "none";
+}
+
+function filteredCommunity(query) {
+  const needle = String(query || "").trim().toLocaleLowerCase("en-GB");
+  if (!needle) return communityMembers;
+  return communityMembers.filter((member) => {
+    const haystack = [member.name, member.email, communityPlansText(member)].join(" ").toLocaleLowerCase("en-GB");
+    return haystack.includes(needle);
+  });
+}
+
+function renderCommunity(data, options = {}) {
+  const message = document.getElementById("community-message");
+  const count = document.getElementById("community-count");
+  const body = document.getElementById("community-rows");
+  if (!message || !count || !body) return;
+  if (!options.keepMessage) {
+    communityNotice = [data?.message, data?.emailMessage, data?.plansMessage].filter(Boolean).join(" ");
+    message.hidden = communityNotice.length === 0;
+    message.textContent = communityNotice;
+  }
+  const query = document.getElementById("community-search")?.value || "";
+  const shown = filteredCommunity(query);
+  const total = communityMembers.length;
+  count.textContent = query.trim() ? `${shown.length} of ${total} members` : `${total} members`;
+  body.replaceChildren();
+  if (data?.available === false) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = "Community members could not be loaded.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  if (shown.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = total === 0 ? "No site members were found." : "No members match that search.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  for (const member of shown) {
+    const row = document.createElement("tr");
+    for (const value of [member.name, member.email, communityPlansText(member)]) {
+      const cell = document.createElement("td");
+      cell.textContent = value || "None";
+      row.append(cell);
+    }
+    body.append(row);
+  }
+}
+
+function clearCommunity() {
+  communityMembers = [];
+  communityNotice = "";
+  const search = document.getElementById("community-search");
+  if (search) search.value = "";
+  renderCommunity({ available: true, members: [] });
+}
+
+async function loadCommunity() {
+  const response = await fetch("/api/community-members", { headers: { Accept: "application/json" } });
+  const data = await readJson(response);
+  if (response.status === 401 || response.status === 503) return;
+  if (!response.ok) {
+    communityMembers = [];
+    renderCommunity({ available: false, message: data.error || "Community members could not be loaded.", members: [] });
+    return;
+  }
+  communityMembers = Array.isArray(data.members) ? data.members : [];
+  renderCommunity(data);
+}
+
+function communityCsv(rows) {
+  const lines = ["Name,Email,Plans"];
+  for (const member of rows) {
+    const cells = [member.name, member.email, communityPlansText(member)].map((value) => {
+      const text = String(value ?? "");
+      if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+      return text;
+    });
+    lines.push(cells.join(","));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 function renderMembers(members) {
   const body = document.getElementById("member-rows");
   body.replaceChildren();
@@ -463,6 +559,7 @@ async function loadMembers() {
   renderMembers(data.members);
   applyHistoryAvailability(data);
   await loadAdminDraws();
+  await loadCommunity();
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
   }
@@ -496,6 +593,49 @@ document.getElementById("lock-button").addEventListener("click", async () => {
   adminForm.hidden = false;
   adminTools.hidden = true;
   drawResult.textContent = "No draw yet this session.";
+  clearCommunity();
+});
+
+document.getElementById("community-search")?.addEventListener("input", () => {
+  renderCommunity({ available: true }, { keepMessage: true });
+});
+
+document.getElementById("community-copy")?.addEventListener("click", async () => {
+  const emails = filteredCommunity(document.getElementById("community-search")?.value || "")
+    .map((member) => String(member.email || "").trim())
+    .filter((email) => email.includes("@"));
+  const message = document.getElementById("community-message");
+  if (emails.length === 0) {
+    if (message) {
+      message.hidden = false;
+      message.textContent = communityNotice ? `No email addresses to copy. ${communityNotice}` : "No email addresses to copy.";
+    }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(emails.join("\n"));
+    if (message) {
+      const copied = emails.length === 1 ? "Copied 1 email." : `Copied ${emails.length} emails.`;
+      message.hidden = false;
+      message.textContent = communityNotice ? `${copied} ${communityNotice}` : copied;
+    }
+  } catch (error) {
+    console.error(error);
+    if (message) {
+      message.hidden = false;
+      message.textContent = "The email list could not be copied.";
+    }
+  }
+});
+
+document.getElementById("community-csv")?.addEventListener("click", () => {
+  const rows = filteredCommunity(document.getElementById("community-search")?.value || "");
+  const blob = new Blob([communityCsv(rows)], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "community-members.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
 });
 
 drawButton.addEventListener("click", async () => {

@@ -4,10 +4,22 @@ import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import communityApi from "../api/community-members.js";
 import cronDraw from "../api/cron/draw.js";
 import stateApi from "../api/state.js";
 import winnersApi from "../api/winners.js";
 import { issueToken, passwordMatches, requireCron, verifyToken } from "../lib/auth.js";
+import {
+  CONTACTS_PERMISSION_MESSAGE,
+  MEMBERS_PERMISSION_MESSAGE,
+  ORDERS_PERMISSION_MESSAGE,
+  PLANS_UNAVAILABLE,
+  buildCommunityRows,
+  communityCsv,
+  communityEmailList,
+  filterCommunityRows,
+  getCommunityMembers,
+} from "../lib/community.js";
 import { pickWinner } from "../lib/draw.js";
 import { EMAIL_UNAVAILABLE, activeEntrants, buildMembers, isPendingCancellation, subscriberEmail } from "../lib/entrants.js";
 import { drawFingerprint, hashEntrantRefs, sortedEntryRefs } from "../lib/fairness.js";
@@ -190,6 +202,53 @@ test("subscriber email prefers the login address, then the contact primary addre
   assert.equal(subscriberEmail({ loginEmail: "not-an-email" }), "");
   assert.equal(subscriberEmail(null), "");
   assert.equal(EMAIL_UNAVAILABLE, "Email unavailable");
+});
+
+test("community rows list active plans for every member", () => {
+  const rows = buildCommunityRows(
+    [
+      { id: "ada", contact: { firstName: "Ada", lastName: "Example" }, loginEmail: "ada.example@example.com" },
+      { id: "ben", contact: { firstName: "Ben", lastName: "Example" }, loginEmail: "ben.example@example.com" },
+      { id: "ada", contact: { firstName: "Duplicate", lastName: "Row" } },
+      { id: "none", contact: { firstName: "No", lastName: "Plan" }, loginEmail: "none.example@example.com" },
+    ],
+    [
+      { status: "ACTIVE", buyer: { memberId: "ada" }, planName: "Notice Board" },
+      { status: "ACTIVE", buyer: { memberId: "ada" }, planName: "AWCA Lottery" },
+      { status: "ACTIVE", buyer: { memberId: "ada" }, planName: "AWCA Lottery" },
+      { status: "CANCELED", buyer: { memberId: "ben" }, planName: "AWCA Lottery" },
+      { status: "ACTIVE", buyer: { memberId: "ben" }, planId: "plan-community" },
+      { status: "ENDED", buyer: { memberId: "none" }, planName: "Notice Board" },
+    ],
+    [{ id: "plan-community", name: "AWCA Community Member" }],
+    new Map()
+  );
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((row) => row.name), ["Ada Example", "Ben Example", "No Plan"]);
+  assert.equal(rows[0].plansLabel, "AWCA Lottery, Notice Board");
+  assert.equal(rows[1].plansLabel, "AWCA Community Member");
+  assert.equal(rows[2].plansLabel, "none");
+  assert.equal("id" in rows[0], false);
+  assert.equal("memberId" in rows[0], false);
+  const blocked = buildCommunityRows(
+    [{ id: "ada", name: "Ada Example", email: "ada.example@example.com" }],
+    [{ status: "ACTIVE", buyer: { memberId: "ada" }, planName: "AWCA Lottery" }],
+    [],
+    new Map(),
+    { plansUnavailable: true }
+  );
+  assert.equal(blocked[0].plansLabel, PLANS_UNAVAILABLE);
+  assert.deepEqual(blocked[0].plans, []);
+  const filtered = filterCommunityRows(rows, "notice");
+  assert.deepEqual(filtered.map((row) => row.name), ["Ada Example"]);
+  assert.deepEqual(communityEmailList([{ email: "ada.example@example.com" }, { email: EMAIL_UNAVAILABLE }, { email: "" }]), [
+    "ada.example@example.com",
+  ]);
+  const csv = communityCsv([
+    { name: 'Ada "Bee", Example', email: "ada.example@example.com", plansLabel: "AWCA Lottery, Notice Board" },
+  ]);
+  assert.equal(csv.split("\n")[0], "Name,Email,Plans");
+  assert.match(csv, /"Ada ""Bee"", Example",ada.example@example.com,"AWCA Lottery, Notice Board"/);
 });
 
 function pendingCancelOrder(memberId, effectiveAt, extra = {}) {
@@ -1280,6 +1339,240 @@ test("public endpoints never contain an email, and admin views do", async () => 
     const stillWinners = fakeRes();
     await winnersApi({ method: "GET", headers: {} }, stillWinners);
     assertNoEmail(stillWinners.body, "/api/winners after contacts forbidden");
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("community members stay behind the admin password and out of public draws", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
+  process.env.ADMIN_PASSWORD = "committee-secret";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  try {
+    const state = await getPublicState([], new Date("2026-09-28T12:00:00.000Z"));
+    const winners = await getPublicWinners();
+    const stateRes = fakeRes();
+    await stateApi({ method: "GET", headers: {} }, stateRes);
+    const winnersRes = fakeRes();
+    await winnersApi({ method: "GET", headers: {} }, winnersRes);
+    const drawn = await runDraw(new Date("2026-09-24T08:00:00.000Z"));
+    for (const payload of [state, winners, stateRes.body, winnersRes.body, drawn.record]) {
+      const json = JSON.stringify(payload);
+      assert.equal(json.includes("pat.neighbour@example.com"), false);
+      assert.equal(json.includes("quinn.neighbour@example.com"), false);
+      assert.equal(json.includes("@"), false);
+    }
+    assert.equal(JSON.stringify(drawn.record).includes("email"), false);
+
+    const lottery = await getMemberList();
+    assert.equal(lottery.members.some((member) => member.email === "ada.sample@example.com"), true);
+    assert.equal(lottery.members.some((member) => member.email === "pat.neighbour@example.com"), false);
+
+    const denied = fakeRes();
+    await communityApi({ method: "GET", headers: {} }, denied);
+    assert.equal(denied.statusCode, 401);
+
+    const posted = fakeRes();
+    await communityApi({ method: "POST", headers: {} }, posted);
+    assert.equal(posted.statusCode, 405);
+
+    const token = issueToken("committee-secret");
+    const allowed = fakeRes();
+    await communityApi(
+      { method: "GET", headers: { cookie: `awca_admin=${encodeURIComponent(token)}` } },
+      allowed
+    );
+    assert.equal(allowed.statusCode, 200);
+    const pat = allowed.body.members.find((member) => member.name === "Sample Neighbour Pat");
+    const quinn = allowed.body.members.find((member) => member.name === "Sample Neighbour Quinn");
+    const ben = allowed.body.members.find((member) => member.name === "Sample Member Ben");
+    assert.equal(pat.email, "pat.neighbour@example.com");
+    assert.equal(pat.plansLabel, "AWCA Community Member");
+    assert.equal(quinn.plansLabel, "none");
+    assert.equal(ben.plansLabel, "AWCA Lottery, Notice Board");
+    assert.equal(JSON.stringify(allowed.body).includes("memberId"), false);
+    assert.equal(lottery.members[0].email.includes("@"), true);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("community members page through Wix and name a missing permission", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  function member(index, extra = {}) {
+    return {
+      id: `member-${index}`,
+      loginEmail: `member${index}@example.com`,
+      contact: { firstName: "Member", lastName: String(index) },
+      ...extra,
+    };
+  }
+
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    calls.push(path);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/members/v1/members/query")) {
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body.fieldsets, ["FULL"]);
+      const offset = body.query.paging.offset;
+      if (offset === 0) {
+        const members = Array.from({ length: 100 }, (_, index) => member(index));
+        members[1] = member(1);
+        members[2] = member(2);
+        members[3] = member(3);
+        return json({ members, metadata: { total: 101, count: 100, offset: 0 } });
+      }
+      assert.equal(offset, 100);
+      return json({
+        members: [member(100, { loginEmail: "", contactId: "c-100", contact: { firstName: "Member", lastName: "100", emails: [] } })],
+        metadata: { total: 101, count: 1, offset: 100 },
+      });
+    }
+    if (path.includes("/contacts/v4/contacts/query")) {
+      const ids = JSON.parse(options.body).query.filter.id.$in;
+      assert.deepEqual(ids, ["c-100"]);
+      return json({ contacts: [{ id: "c-100", primaryInfo: { email: "member100@example.com" } }] });
+    }
+    if (path.includes("/pricing-plans/v2/orders")) {
+      const query = new URL(path).searchParams;
+      assert.equal(query.get("planIds"), null);
+      const offset = Number(query.get("offset"));
+      if (offset === 0) {
+        const orders = Array.from({ length: 50 }, (_, index) => ({
+          status: "ACTIVE",
+          buyer: { memberId: `not-a-site-member-${index}` },
+          planName: "Ignore Me",
+        }));
+        return json({ orders, pagingMetadata: { total: 54, hasNext: true } });
+      }
+      assert.equal(offset, 50);
+      return json({
+        orders: [
+          { status: "ACTIVE", buyer: { memberId: "member-0" }, planName: "AWCA Lottery" },
+          { status: "CANCELED", buyer: { memberId: "member-1" }, planName: "AWCA Lottery" },
+          { status: "ACTIVE", buyer: { memberId: "member-2" }, planName: "Notice Board" },
+          { status: "ACTIVE", buyer: { memberId: "member-2" }, planId: "plan-community" },
+          { status: "ACTIVE", buyer: { memberId: "member-100" }, planId: "plan-notice" },
+        ],
+        pagingMetadata: { total: 55, hasNext: false },
+      });
+    }
+    if (path.includes("/pricing-plans/v3/plans/query")) {
+      return json({
+        plans: [
+          { id: "plan-notice", name: "Notice Board" },
+          { id: "plan-community", name: "AWCA Community Member" },
+        ],
+      });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+
+  try {
+    const directory = await getCommunityMembers();
+    assert.equal(directory.available, true);
+    assert.equal(directory.members.length, 101);
+    assert.equal(directory.emailMessage, "");
+    assert.equal(directory.plansMessage, "");
+    const byEmail = new Map(directory.members.map((row) => [row.email, row]));
+    assert.equal(byEmail.get("member0@example.com").plansLabel, "AWCA Lottery");
+    assert.equal(byEmail.get("member1@example.com").plansLabel, "none");
+    assert.equal(byEmail.get("member2@example.com").plansLabel, "AWCA Community Member, Notice Board");
+    assert.equal(byEmail.get("member3@example.com").plansLabel, "none");
+    assert.equal(byEmail.get("member100@example.com").plansLabel, "Notice Board");
+    assert.equal(JSON.stringify(directory).includes("memberId"), false);
+    assert.equal(JSON.stringify(directory).includes("Ignore Me"), false);
+    assert.equal(calls.some((path) => path.includes("/wix-data/")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("a community directory permission failure names the Wix scope", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  const originalFetch = globalThis.fetch;
+
+  function json(body, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    if (path.includes("/members/v1/members/query")) return json({ message: "Forbidden" }, 403);
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const blocked = await getCommunityMembers();
+    assert.equal(blocked.available, false);
+    assert.equal(blocked.message, MEMBERS_PERMISSION_MESSAGE);
+    assert.deepEqual(blocked.members, []);
+    assert.equal(blocked.message.includes("SCOPE.DC-MEMBERS.READ-MEMBERS"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.includes("/members/v1/members/query")) {
+      return json({
+        members: [
+          {
+            id: "member-login",
+            loginEmail: "login.person@example.com",
+            contact: { firstName: "Login", lastName: "Person" },
+          },
+          {
+            id: "member-contact",
+            contactId: "c-contact",
+            contact: { firstName: "Ada", lastName: "Contact", emails: [] },
+          },
+        ],
+        metadata: { total: 2, count: 2, offset: 0 },
+      });
+    }
+    if (path.includes("/contacts/v4/contacts/query")) return json({ message: "Forbidden" }, 403);
+    if (path.includes("/pricing-plans/v2/orders")) return json({ message: "Forbidden" }, 403);
+    if (path.includes("/pricing-plans/v3/plans/query")) throw new Error("plans should wait until orders succeed");
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const partial = await getCommunityMembers();
+    assert.equal(partial.available, true);
+    assert.equal(partial.emailMessage, CONTACTS_PERMISSION_MESSAGE);
+    assert.equal(partial.plansMessage, ORDERS_PERMISSION_MESSAGE);
+    assert.equal(partial.emailMessage.includes("SCOPE.DC-CONTACTS.READ-CONTACTS"), true);
+    assert.equal(partial.plansMessage.includes("SCOPE.DC-PAIDPLANS.READ-ORDERS"), true);
+    const login = partial.members.find((member) => member.name === "Login Person");
+    const ada = partial.members.find((member) => member.name === "Ada Contact");
+    assert.equal(login.email, "login.person@example.com");
+    assert.equal(login.plansLabel, PLANS_UNAVAILABLE);
+    assert.equal(ada.email, EMAIL_UNAVAILABLE);
+    assert.equal(JSON.stringify(partial).includes("member-login"), false);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();

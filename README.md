@@ -38,7 +38,7 @@ The page calls these REST endpoints:
 
 - `POST https://www.wixapis.com/pricing-plans/v3/plans/query` to find the plan
 - `GET https://www.wixapis.com/pricing-plans/v2/orders` to list subscribers, including cancelled and ended orders
-- `POST https://www.wixapis.com/members/v1/members/query` with the `FULL` fieldset to read member names and login emails
+- `POST https://www.wixapis.com/members/v1/members/query` with the `FULL` fieldset to read member names and login emails, including every site member for the admin community list
 - `POST https://www.wixapis.com/contacts/v4/contacts/query` with the `COMMUNICATION_DETAILS` fieldset to read a contact's primary email when the member login email is empty
 - `POST https://www.wixapis.com/wix-data/v2/items/query` and `POST https://www.wixapis.com/wix-data/v2/items` to read and save draws
 - `GET https://www.wixapis.com/wix-data/v2/collections/LotteryDraws` and `POST https://www.wixapis.com/wix-data/v2/collections/create-field` to add fingerprint fields when the collection already exists
@@ -59,7 +59,9 @@ An active order can also have auto-renew cancelled, with `cancellation.effective
 
 The public page, the public draw history, and `GET /api/state` never include a winner's full name or email. A winner is shown as initials plus an entry reference, for example `D.M. - Entry 4F7A2C`.
 
-The admin member list, the official draw record, and Draw Winner show each subscriber's email next to their name. The address is the member login email from the Members API. If that is empty, it is the contact's primary email. Those addresses are loaded live and are not written into the draw collection. If the API key cannot read them, the admin view shows `Email unavailable`. Login emails need Read Members. Contact emails need Read Contacts, `SCOPE.DC-CONTACTS.READ-CONTACTS`.
+The admin member list, the official draw record, and Draw Winner show each lottery subscriber's email next to their name. The address is the member login email from the Members API. If that is empty, it is the contact's primary email. Those addresses are loaded live and are not written into the draw collection. If the API key cannot read them, the admin view shows `Email unavailable`. Login emails need Read Members. Contact emails need Read Contacts, `SCOPE.DC-CONTACTS.READ-CONTACTS`.
+
+The admin section also has Community members. That list is every site member from the Members API, paged 100 at a time, not only people on the lottery plan. Each row shows the name, the email, and the active pricing plans, for example AWCA Lottery, Notice Board, AWCA Community Member, or none. Cancelled and ended orders are not listed as current plans. Search, Copy emails, and Download CSV stay in the browser and only use that admin list. `GET /api/community-members` requires the admin password. It is not part of `GET /api/state`, `GET /api/winners`, or the embed, and it is not stored on a draw. If the key cannot list members, the section says to add Read Members (`SCOPE.DC-MEMBERS.READ-MEMBERS`). If contact emails are blocked, rows show `Email unavailable` and the section names Read Contacts (`SCOPE.DC-CONTACTS.READ-CONTACTS`). If orders cannot be read, the section names Read Orders (`SCOPE.DC-PAIDPLANS.READ-ORDERS`).
 
 Initials come from the first and last name. `Daniel Monks` becomes `D.M.` A single name uses that name's initial. Hyphenated parts each contribute an initial, so `Mary-Jane Watson` becomes `M.J.W.` If no name is available, the public label is the entry reference only.
 
