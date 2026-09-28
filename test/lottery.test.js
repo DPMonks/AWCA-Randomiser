@@ -1008,6 +1008,62 @@ test("only the winners embed can be framed, and only by the Wix site", async () 
   assert.equal(deny.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
 });
 
+test("the AWCA favicon is linked on every page and cached", async () => {
+  const iconCache = "public, max-age=86400, s-maxage=604800";
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const iconRule = config.headers.find((rule) => String(rule.source).includes("favicon.ico"));
+  assert.equal(iconRule.headers.find((header) => header.key === "Cache-Control").value, iconCache);
+  assert.equal(iconRule.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
+  const manifestRule = config.headers.find((rule) => rule.source === "/site.webmanifest");
+  assert.equal(manifestRule.headers.find((header) => header.key === "Cache-Control").value, iconCache);
+  assert.equal(
+    manifestRule.headers.find((header) => header.key === "Content-Type").value,
+    "application/manifest+json"
+  );
+
+  const manifest = JSON.parse(await readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8"));
+  assert.equal(manifest.theme_color, "#1f3b5c");
+  assert.deepEqual(
+    manifest.icons.map((icon) => icon.sizes),
+    ["192x192", "512x512"]
+  );
+
+  function pngSize(bytes) {
+    assert.equal(bytes.subarray(1, 4).toString(), "PNG");
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+
+  const root = new URL("../public/", import.meta.url);
+  const png32 = Buffer.from(await readFile(new URL("favicon-32x32.png", root)));
+  const apple = Buffer.from(await readFile(new URL("apple-touch-icon.png", root)));
+  const icon192 = Buffer.from(await readFile(new URL("icon-192.png", root)));
+  const icon512 = Buffer.from(await readFile(new URL("icon-512.png", root)));
+  assert.deepEqual(pngSize(png32), { width: 32, height: 32 });
+  assert.deepEqual(pngSize(apple), { width: 180, height: 180 });
+  assert.deepEqual(pngSize(icon192), { width: 192, height: 192 });
+  assert.deepEqual(pngSize(icon512), { width: 512, height: 512 });
+
+  const ico = Buffer.from(await readFile(new URL("favicon.ico", root)));
+  assert.equal(ico.readUInt16LE(0), 0);
+  assert.equal(ico.readUInt16LE(2), 1);
+  assert.equal(ico.readUInt16LE(4), 3);
+  const icoSizes = [];
+  for (let i = 0; i < 3; i += 1) icoSizes.push(ico[6 + i * 16] || 256);
+  assert.deepEqual(icoSizes, [16, 32, 48]);
+
+  const pages = ["../public/index.html", "../public/demo.html", "../public/winners-embed/index.html"];
+  for (const file of pages) {
+    const html = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.match(html, /<meta name="theme-color" content="#1f3b5c" \/>/);
+    assert.match(html, /href="\/favicon\.ico"/);
+    assert.match(html, /href="\/favicon-32x32\.png"/);
+    assert.match(html, /href="\/apple-touch-icon\.png"/);
+    assert.match(html, /href="\/site\.webmanifest"/);
+  }
+  const index = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(index, /src="AWCA%20Logo\.jpg"/);
+});
+
 test("public copy does not tell visitors to add CMS in the editor", async () => {
   const files = ["../lib/store.js", "../public/main.js", "../public/winners-embed/index.html", "../README.md"];
   for (const file of files) {
@@ -1039,7 +1095,7 @@ test("source files do not contain em or en dashes", async () => {
         await walk(path);
         continue;
       }
-      if (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)) continue;
+      if (/\.(jpg|jpeg|png|gif|webp|ico)$/i.test(name)) continue;
       const text = await readFile(path, "utf8");
       for (const mark of banned) {
         assert.equal(text.includes(mark), false, `${path} contains a banned dash`);
