@@ -1,9 +1,9 @@
 import { asyncHandler, sendJson } from "../lib/http.js";
-import { getBusinessSupporters } from "../lib/business.js";
+import { getBusinessSupporters, toPublicSupporter } from "../lib/business.js";
 import { listOrdersForPlan, listPlans } from "../lib/wix.js";
 
 // New subscribers show up within about 5 minutes.
-export const BUSINESS_CACHE_CONTROL = "public, max-age=0, s-maxage=300, stale-while-revalidate=600";
+export const BUSINESS_CACHE_CONTROL = "public, max-age=0, s-maxage=300, stale-while-revalidate=0";
 
 export function createHandler(deps = { listPlans, listOrdersForPlan }) {
   return asyncHandler(async (req, res) => {
@@ -19,7 +19,10 @@ export function createHandler(deps = { listPlans, listOrdersForPlan }) {
       sendJson(res, 200, { available: false, supporters: [] }, { cacheControl: "no-store" });
       return;
     }
-    sendJson(res, 200, body, { cacheControl: BUSINESS_CACHE_CONTROL });
+    sendJson(res, 200, {
+      available: body.available,
+      supporters: (body.supporters || []).map(toPublicSupporter),
+    }, { cacheControl: BUSINESS_CACHE_CONTROL });
   });
 }
 

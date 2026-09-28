@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>AWCA business spotlight</title>
+  <meta name="theme-color" content="#4f5139" />
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+  <style>
+    :root {
+      --olive: #4f5139;
+      --olive-dark: #3f412d;
+      --cream: #f4f1e6;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: transparent; }
+    body {
+      color: var(--cream);
+      font-family: "DM Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
+    }
+    .panel {
+      background: var(--olive);
+      border-radius: 4px;
+      padding: 16px;
+    }
+    .status { margin: 0; text-align: center; color: var(--cream); }
+    .grid {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .tile {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px;
+      background: var(--olive-dark);
+      color: var(--cream);
+      text-decoration: none;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .tile:hover .name, .tile:focus .name { text-decoration: underline; }
+    .logo {
+      width: 68%;
+      aspect-ratio: 1;
+      background: #fff;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .logo img { max-width: 86%; max-height: 86%; object-fit: contain; }
+    .logo.initial {
+      background: var(--cream);
+      color: var(--olive);
+      font-size: 1.8rem;
+      font-weight: 600;
+    }
+    .name {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .tile.open { border: 1px dashed rgba(244, 241, 230, 0.7); background: transparent; }
+    [hidden] { display: none !important; }
+    @media (max-width: 640px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <section class="panel" aria-label="Business spotlight">
+    <p id="status" class="status">Loading business spotlight.</p>
+    <ul id="spotlight" class="grid" hidden></ul>
+  </section>
+  <script src="/biz-beacon.js"></script>
+  <script src="/business-spotlight.js"></script>
+</body>
+</html>

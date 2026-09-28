@@ -131,6 +131,31 @@
       color: var(--cream-soft);
     }
 
+    .card-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .card-link:hover .name,
+    .card-link:focus .name {
+      text-decoration: underline;
+    }
+
+    .more {
+      margin: 16px 0 0;
+      text-align: center;
+      font-size: 0.85rem;
+    }
+
+    .more a {
+      color: var(--cream);
+    }
+
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -144,13 +169,15 @@
       <p id="example" class="example" hidden>Example data. Not real supporters.</p>
       <div id="status" class="status" role="status">Loading business supporters.</div>
       <ul id="grid" class="grid" hidden></ul>
+      <p class="more"><a href="/businesses" target="_blank" rel="noopener">View all business supporters</a></p>
     </section>
   </main>
+  <script src="/biz-beacon.js"></script>
   <script>
     const EXAMPLE = [
-      { name: "Weald Coffee Co", logoUrl: null },
-      { name: "Alconbury Garden Services", logoUrl: null },
-      { name: "The Village Bakery", logoUrl: null }
+      { name: "Weald Coffee Co", logoUrl: null, slug: "weald-coffee-co" },
+      { name: "Alconbury Garden Services", logoUrl: null, slug: "alconbury-garden-services" },
+      { name: "The Village Bakery", logoUrl: null, slug: "the-village-bakery" }
     ];
 
     const statusEl = document.getElementById("status");
@@ -220,9 +247,24 @@
         const name = document.createElement("p");
         name.className = "name";
         name.textContent = item.name;
-        li.append(logoTile(item), name);
+        const logo = logoTile(item);
+        if (item.slug) {
+          const link = document.createElement("a");
+          link.className = "card-link";
+          link.href = `/businesses/${encodeURIComponent(item.slug)}`;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.setAttribute("data-business-click", item.slug);
+          link.append(logo, name);
+          li.append(link);
+          li.setAttribute("data-business-view", item.slug);
+        } else {
+          li.append(logo, name);
+        }
         grid.append(li);
       }
+      const slugs = supporters.map((item) => item.slug).filter(Boolean);
+      if (window.awcaRecordViews) window.awcaRecordViews(slugs);
     }
 
     async function load() {

@@ -1791,7 +1791,7 @@ test("only the winners embed can be framed, and only by the Wix site", async () 
   const deny = config.headers.find((rule) => rule.source.includes("(?!winners-embed)"));
   assert.equal(cspDirective(deny.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors"), "frame-ancestors 'none'");
   assert.equal(deny.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
-  for (const source of ["/business-embed", "/business-embed/(.*)"]) {
+  for (const source of ["/business-embed", "/business-embed/(.*)", "/business-spotlight", "/business-spotlight/(.*)"]) {
     const rule = config.headers.find((item) => item.source === source);
     assert.equal(rule.headers.some((header) => header.key === "X-Frame-Options"), false);
     assert.equal(

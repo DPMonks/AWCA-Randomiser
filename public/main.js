@@ -524,6 +524,137 @@ function renderMembers(members) {
   }
 }
 
+function sponsorTile(slot) {
+  const link = document.createElement("a");
+  link.className = "awca-sponsor-tile";
+  link.target = "_blank";
+  link.rel = "noopener";
+  if (slot.kind === "business" && slot.slug) {
+    link.href = `/businesses/${encodeURIComponent(slot.slug)}`;
+    link.setAttribute("data-business-click", slot.slug);
+    const logo = document.createElement("span");
+    logo.className = "awca-sponsor-logo";
+    if (slot.logoUrl) {
+      const img = document.createElement("img");
+      img.src = slot.logoUrl;
+      img.alt = "";
+      img.referrerPolicy = "no-referrer";
+      logo.append(img);
+    } else {
+      logo.textContent = (slot.name || "A").trim().charAt(0).toUpperCase();
+    }
+    const name = document.createElement("span");
+    name.className = "awca-sponsor-name";
+    name.textContent = slot.name;
+    link.append(logo, name);
+    return link;
+  }
+  link.classList.add("is-open");
+  link.href = slot.href || "https://www.alconbury-weald.org/pricing-plans/plans-pricing";
+  const name = document.createElement("span");
+  name.className = "awca-sponsor-name";
+  name.textContent = slot.label || "Your business here";
+  link.append(name);
+  return link;
+}
+
+async function loadDrawSupporters() {
+  const section = document.getElementById("draw-supporters");
+  const list = document.getElementById("draw-supporters-list");
+  if (!section || !list) return;
+  try {
+    const response = await fetch("/api/business-spotlight", { headers: { Accept: "application/json" } });
+    const data = await readJson(response);
+    const slots = Array.isArray(data.slots) ? data.slots : [];
+    if (!response.ok || slots.length === 0) {
+      section.hidden = true;
+      return;
+    }
+    list.replaceChildren();
+    const slugs = [];
+    for (const slot of slots) {
+      const item = document.createElement("li");
+      if (slot.kind === "business" && slot.slug) {
+        item.setAttribute("data-business-view", slot.slug);
+        slugs.push(slot.slug);
+      }
+      item.append(sponsorTile(slot));
+      list.append(item);
+    }
+    section.hidden = false;
+    if (window.awcaRecordViews) window.awcaRecordViews(slugs);
+  } catch (error) {
+    console.error(error);
+    section.hidden = true;
+  }
+}
+
+function countCell(value) {
+  const cell = document.createElement("td");
+  cell.textContent = value == null ? "Unavailable" : String(value);
+  return cell;
+}
+
+function renderBusinessSubscriptions(data) {
+  const body = document.getElementById("business-subscription-rows");
+  const message = document.getElementById("business-subscription-message");
+  if (!body) return;
+  body.replaceChildren();
+  if (message) {
+    message.hidden = data?.available !== false && data?.statsAvailable !== false;
+    if (data?.available === false) message.textContent = "Business subscriptions could not be loaded.";
+    else if (data?.statsAvailable === false) message.textContent = "View and click counts are unavailable right now.";
+    else message.textContent = "";
+  }
+  const rows = Array.isArray(data?.subscriptions) ? data.subscriptions : [];
+  if (rows.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 8;
+    cell.textContent = "No business subscriptions were found.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  for (const item of rows) {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    name.textContent = item.name || "Name missing";
+    const website = document.createElement("td");
+    if (item.website) {
+      const link = document.createElement("a");
+      link.href = item.website;
+      link.textContent = item.website;
+      link.target = "_blank";
+      link.rel = "noopener";
+      website.append(link);
+    } else {
+      website.textContent = "None";
+    }
+    for (const value of [item.status, item.startLabel, item.endLabel, item.displayed ? "Yes" : "No"]) {
+      const cell = document.createElement("td");
+      cell.textContent = value || "None";
+      row.append(cell);
+    }
+    row.prepend(website);
+    row.prepend(name);
+    row.append(countCell(item.views), countCell(item.clicks));
+    body.append(row);
+  }
+}
+
+async function loadBusinessSubscriptions() {
+  const body = document.getElementById("business-subscription-rows");
+  if (!body) return;
+  const response = await fetch("/api/business-subscriptions", { headers: { Accept: "application/json" } });
+  const data = await readJson(response);
+  if (!response.ok) {
+    renderBusinessSubscriptions({ available: false, subscriptions: [] });
+    return;
+  }
+  renderBusinessSubscriptions(data);
+}
+
 async function loadMembers() {
   const response = await fetch("/api/members", { headers: { Accept: "application/json" } });
   const data = await readJson(response);
@@ -555,6 +686,7 @@ async function loadMembers() {
   applyHistoryAvailability(data);
   await loadAdminDraws();
   await loadCommunity();
+  await loadBusinessSubscriptions();
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
   }
@@ -593,6 +725,8 @@ document.getElementById("lock-button").addEventListener("click", async () => {
   adminTools.hidden = true;
   drawResult.textContent = "No draw yet this session.";
   clearCommunity();
+  const businessRows = document.getElementById("business-subscription-rows");
+  if (businessRows) businessRows.replaceChildren();
 });
 
 document.getElementById("community-search")?.addEventListener("input", () => {
@@ -844,6 +978,7 @@ window.addEventListener("awca-drum-ready", () => {
 window.addEventListener("awca-reveal", (event) => showWinnerCard(event.detail?.label));
 window.addEventListener("awca-reveal-end", hideWinnerCard);
 
+loadDrawSupporters();
 if (demoMode) startDemo();
 else {
   loadState();

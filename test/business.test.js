@@ -6,9 +6,13 @@ import {
   cleanBusinessName,
   extractBusinessName,
   extractLogoUrl,
+  extractWebsite,
   getBusinessSupporters,
+  normaliseWebsite,
   safeImageUrl,
   selectBusinessPlan,
+  slugifyBusinessName,
+  toPublicSupporter,
   unwrapValue,
 } from "../lib/business.js";
 import { BUSINESS_CACHE_CONTROL, createHandler } from "../api/business-supporters.js";
@@ -100,7 +104,7 @@ test("cleanBusinessName trims, replaces long dashes and rejects emails", () => {
   assert.equal(cleanBusinessName(42), "");
 });
 
-test("buildSupporters keeps active orders only and exposes name and logo only", () => {
+test("buildSupporters keeps active orders only and exposes public business fields", () => {
   const supporters = buildSupporters([
     order(),
     order({ id: "o2", status: "CANCELED", buyer: { memberId: "m2" } }),
@@ -110,13 +114,27 @@ test("buildSupporters keeps active orders only and exposes name and logo only", 
     order({ id: "o6", buyer: { memberId: "m6" }, formData: { submissionData: { first_name: "No business" } } }),
   ], { planId: PLAN_ID });
   assert.deepEqual(supporters, [
-    { name: "Alconbury Garden Services", logoUrl: null },
-    { name: "Weald Coffee Co", logoUrl: LOGO },
+    {
+      name: "Alconbury Garden Services",
+      logoUrl: null,
+      website: null,
+      slug: "alconbury-garden-services",
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    },
+    {
+      name: "Weald Coffee Co",
+      logoUrl: LOGO,
+      website: null,
+      slug: "weald-coffee-co",
+      updatedAt: "2026-09-01T10:00:00.000Z",
+    },
   ]);
-  const json = JSON.stringify(supporters);
-  assert.ok(!json.includes("Jane"));
-  assert.ok(!json.includes("jane@example.com"));
-  assert.ok(!json.includes("m1"));
+  const json = JSON.stringify(supporters.map(toPublicSupporter));
+  assert.equal(json.includes("Jane"), false);
+  assert.equal(json.includes("jane@example.com"), false);
+  assert.equal(json.includes("m1"), false);
+  assert.equal(json.includes("updatedAt"), false);
+  assert.deepEqual(Object.keys(toPublicSupporter(supporters[1])).sort(), ["logoUrl", "name", "slug", "website"]);
 });
 
 test("buildSupporters uses the newest order per buyer and dedupes names", () => {
@@ -142,7 +160,10 @@ test("API returns supporters with a 5 minute CDN cache", async () => {
   assert.equal(askedFor, PLAN_ID);
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["cache-control"], BUSINESS_CACHE_CONTROL);
-  assert.deepEqual(JSON.parse(res.body), { available: true, supporters: [{ name: "Weald Coffee Co", logoUrl: LOGO }] });
+  assert.deepEqual(JSON.parse(res.body), {
+    available: true,
+    supporters: [{ name: "Weald Coffee Co", logoUrl: LOGO, slug: "weald-coffee-co", website: null }],
+  });
 });
 
 test("API degrades gracefully when Wix fails and rejects non GET", async () => {
@@ -161,6 +182,7 @@ test("business embed can be framed by Wix and nothing else is opened up", () => 
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   const deny = config.headers.find((h) => h.source.startsWith("/((?!"));
   assert.ok(deny.source.includes("business-embed"));
+  assert.ok(deny.source.includes("business-spotlight"));
   assert.ok(deny.source.includes("winners-embed"));
   for (const source of ["/business-embed", "/business-embed/(.*)"]) {
     const rule = config.headers.find((h) => h.source === source);
@@ -175,5 +197,62 @@ test("business embed copy has the empty state and no long dashes", () => {
   const html = readFileSync(new URL("../public/business-embed/index.html", import.meta.url), "utf8");
   assert.ok(html.includes("Become our first business supporter"));
   assert.ok(html.includes("/api/business-supporters"));
-  assert.ok(!/[\u2013\u2014]/.test(html));
+  assert.ok(html.includes("View all business supporters"));
+  assert.ok(html.includes('href="/businesses"'));
+  assert.ok(html.includes('target="_blank"'));
+  assert.ok(html.includes("/businesses/${encodeURIComponent(item.slug)}"));
+  assert.equal(/[\u2013\u2014]/.test(html), false);
+  assert.equal(html.includes("nofollow"), false);
+});
+
+test("slugifyBusinessName is stable, lowercase, and hyphenated", () => {
+  assert.equal(slugifyBusinessName("Weald Coffee Co"), "weald-coffee-co");
+  assert.equal(slugifyBusinessName("  Weald   Coffee   Co. "), "weald-coffee-co");
+  assert.equal(slugifyBusinessName("Caf\u00e9 & Co."), "cafe-and-co");
+  assert.equal(slugifyBusinessName("Smith \u2014 Sons"), "smith-sons");
+  assert.equal(slugifyBusinessName("O'Brien's"), "obriens");
+  assert.equal(slugifyBusinessName("!!!"), "business");
+  assert.equal(slugifyBusinessName("Weald Coffee Co"), slugifyBusinessName("weald coffee co"));
+});
+
+test("slugs are unique and an older business keeps the plain slug", () => {
+  const orders = [
+    order({ id: "1", buyer: { memberId: "1" }, startDate: "2020-01-01T00:00:00.000Z", formData: { submissionData: { business_name: "Foo 2" } } }),
+    order({ id: "2", buyer: { memberId: "2" }, startDate: "2021-01-01T00:00:00.000Z", formData: { submissionData: { business_name: "Foo" } } }),
+    order({ id: "3", buyer: { memberId: "3" }, startDate: "2022-01-01T00:00:00.000Z", formData: { submissionData: { business_name: "Foo!" } } }),
+  ];
+  const rows = buildSupporters(orders, { planId: PLAN_ID });
+  const again = buildSupporters(orders, { planId: PLAN_ID });
+  const byName = Object.fromEntries(rows.map((supporter) => [supporter.name, supporter.slug]));
+  assert.equal(byName["Foo 2"], "foo-2");
+  assert.equal(byName.Foo, "foo");
+  assert.equal(byName["Foo!"], "foo-3");
+  assert.equal(new Set(rows.map((supporter) => supporter.slug)).size, 3);
+  assert.deepEqual(again.map((supporter) => supporter.slug), rows.map((supporter) => supporter.slug));
+});
+
+test("extracts and normalises an http or https company website", () => {
+  assert.equal(normaliseWebsite("HTTPS://WWW.Example.com/About/"), "https://www.example.com/About/");
+  assert.equal(normaliseWebsite("https://example.com/"), "https://example.com");
+  assert.equal(normaliseWebsite("http://example.com/path"), "http://example.com/path");
+  assert.equal(normaliseWebsite("https://example.com/a?b=1#frag"), "https://example.com/a?b=1");
+  assert.equal(normaliseWebsite("javascript:alert(1)"), "");
+  assert.equal(normaliseWebsite("mailto:owner@example.com"), "");
+  assert.equal(normaliseWebsite("ftp://example.com/file"), "");
+  assert.equal(normaliseWebsite("https://user:pass@example.com"), "");
+  assert.equal(normaliseWebsite("not a url"), "");
+  assert.equal(normaliseWebsite("example.com"), "");
+  const data = {
+    company_name: "Weald Coffee Co",
+    company_website: "HTTPS://Weald.Example/menu/",
+    business_email: "owner@weald.example",
+    email: "jane@example.com",
+    business_logo: [{ url: LOGO }],
+  };
+  assert.equal(extractWebsite(data), "https://weald.example/menu/");
+  assert.equal(extractWebsite({ company_website: { stringValue: "https://wrapped.example" } }), "https://wrapped.example");
+  assert.equal(extractWebsite({ field_w: "http://a.example" }, "field_w"), "http://a.example");
+  assert.equal(extractWebsite({ company_website: "owner@shop.example" }), "");
+  assert.equal(extractWebsite({ business_logo: LOGO, business_email: "a@b.com" }), "");
+  assert.equal(extractBusinessName(data), "Weald Coffee Co");
 });
