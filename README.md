@@ -107,7 +107,7 @@ The automatic draw, from cron and from a visit to the public page, runs only in 
 
 Vercel cron is scheduled in UTC and can run late on the Hobby plan. `vercel.json` calls `/api/cron/draw` at 19:00, 20:00, 21:00, and 22:00 UTC on day 1. The handler draws only inside that 24 hour window, and only when that month has no saved draw. A call before 20:00 UK time, or after the window has closed, returns 200 and does not draw. Set `CRON_SECRET`. Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
 
-`GET /api/state` runs the same draw if the month is due and no result is saved yet, so a late cron does not hold the result back. The public page counts down to the next 20:00 UK time. At that time it shows "Drawing now", polls `/api/state`, and plays the drum as soon as the saved result exists. Later visitors in the same month see the drum once, then Replay.
+`GET /api/state` runs the same draw if the month is due and no result is saved yet, so a late cron does not hold the result back. The public page counts down to the next 20:00 UK time. At that time it shows "Drawing now", polls `/api/state`, and plays the drum as soon as the saved result exists. Later visitors in the same month see the drum once.
 
 Each month has one draw. The stored item id is the London month, for example `2026-10`. If two requests insert together, the second one reads back the first winner. The entry count and pot are snapshotted from the active entrants at draw time. The winner is chosen with `crypto.randomInt`.
 
@@ -119,7 +119,7 @@ In mock mode, a sample past result is always shown as initials and an entry refe
 
 Open `/?demo=1` (or `/demo.html`) to see the lottery drum with example data. A banner reads "Demo - example data". The entry slider and Play draw button stay in the browser and do not call Wix. Live pages still load `/api/state`, which includes `entryRefs` (the public reference codes only, never names or initials) so the drum can show one ball per entry.
 
-`/?demo=1&countdown=10` rehearses draw night without Wix. The next draw is 10 seconds ahead, about 40 example entries tumble in the drum, the countdown reaches "Drawing now", then the drum plays a fixed example result, `A.B. - Entry 840053`, with confetti and Replay. `countdown` can be any whole number from 1 to 120.
+`/?demo=1&countdown=10` rehearses draw night without Wix. The next draw is 10 seconds ahead, about 40 example entries tumble in the drum, the countdown reaches "Drawing now", then the drum plays a fixed example result, `A.B. - Entry 840053`, with confetti. `countdown` can be any whole number from 1 to 120.
 
 ## Local check
 

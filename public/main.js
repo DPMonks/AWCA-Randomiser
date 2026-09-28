@@ -81,20 +81,7 @@ function playWinner(draw) {
   else queuedDraw = run;
 }
 
-function armReplay(draw) {
-  const button = document.getElementById("replay-draw");
-  if (!button) return;
-  if (!draw || !draw.label) {
-    button.hidden = true;
-    button.onclick = null;
-    return;
-  }
-  button.hidden = false;
-  button.onclick = () => playWinner(draw);
-}
-
 function autoplayDraw(draw) {
-  armReplay(draw);
   if (!draw) return;
   const key = seenKey(draw);
   try {
@@ -348,7 +335,6 @@ function renderState(data) {
     syncDrum(data.entryRefs || []);
     const nightly = currentMonthDraw(data.history);
     if (nightly) autoplayDraw(nightly);
-    else armReplay(data.lastWinner);
   }
   showExampleNotice(demoMode || data.mock === true);
   if (data.mock) {
@@ -658,7 +644,6 @@ drawButton.addEventListener("click", async () => {
     } catch (error) {
       console.error(error);
     }
-    armReplay(data.winner);
     playWinner(data.winner);
     await loadState();
     await loadAdminDraws();
@@ -746,7 +731,6 @@ function startDemoNight(seconds) {
       winner.drawnAt = new Date().toISOString();
       document.getElementById("last-winner-name").textContent = winner.label;
       document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
-      armReplay(winner);
       playWinner(winner);
     }, 1200);
   };
@@ -825,7 +809,6 @@ function startDemo() {
     };
     document.getElementById("last-winner-name").textContent = draw.label;
     document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
-    armReplay(draw);
     playWinner(draw);
   });
   applyCount();
