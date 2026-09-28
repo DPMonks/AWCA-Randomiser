@@ -156,6 +156,7 @@ body {
 .awca-history {
   margin: 0;
   padding-left: 1.2rem;
+  overflow-wrap: anywhere;
 }
 
 .awca-history li {
@@ -171,11 +172,16 @@ body {
   margin: 1rem 0;
 }
 
-.awca-admin-form input {
+.awca-admin-form input,
+#community-search {
   padding: 0.7rem 0.9rem;
   border: 1px solid #cfd6e0;
   border-radius: 8px;
   font-size: 1rem;
+}
+
+#community-search {
+  min-width: min(100%, 16rem);
 }
 
 .awca-table-wrap {
@@ -192,6 +198,7 @@ body {
   text-align: left;
   padding: 0.65rem 0.5rem;
   border-bottom: 1px solid #e6ebf2;
+  overflow-wrap: anywhere;
 }
 
 .awca-table th {
@@ -286,6 +293,58 @@ body {
   animation: awca-fall 1.8s linear forwards;
 }
 
+.awca-drum-countdown {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.awca-drum-countdown p {
+  margin: 0;
+}
+
+#drum-countdown-label {
+  margin-bottom: 0.65rem;
+  color: var(--awca-secondary);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.awca-drum-digits {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.awca-drum-digits div {
+  background: #f0f3f7;
+  border-radius: 12px;
+  padding: 0.7rem 0.25rem 0.55rem;
+}
+
+.awca-drum-digits span {
+  display: block;
+  color: var(--awca-secondary);
+  font-size: clamp(1.6rem, 7vw, 2.7rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.awca-drum-digits small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--awca-sub);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.awca-drum-status {
+  color: var(--awca-primary);
+  font-size: clamp(1.4rem, 5vw, 2rem);
+  font-weight: 700;
+}
+
 .awca-demo {
   display: grid;
   gap: 0.65rem;
@@ -309,6 +368,10 @@ body {
   border: 1px solid #cfd6e0;
   border-radius: 8px;
   background: #fff;
+}
+
+#past-winner-detail {
+  overflow-wrap: anywhere;
 }
 
 @keyframes awca-fade-in {
@@ -383,6 +446,14 @@ body.demo-night #draw-countdown {
   font-size: 1.35rem;
   font-weight: 700;
   color: var(--awca-secondary);
+}
+
+body.demo-night .awca-drum-digits span {
+  font-size: 1.45rem;
+}
+
+body.demo-night .awca-drum-countdown {
+  margin-top: 0.55rem;
 }
 
 body.demo-night .awca-result,

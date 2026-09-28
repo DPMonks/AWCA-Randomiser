@@ -1,16 +1,32 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
-import { mkdtemp, readFile, readdir, stat } from "node:fs/promises";
+import { createHash, createHmac } from "node:crypto";
+import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import communityApi from "../api/community-members.js";
 import cronDraw from "../api/cron/draw.js";
+import stateApi from "../api/state.js";
+import winnersApi from "../api/winners.js";
 import { issueToken, passwordMatches, requireCron, verifyToken } from "../lib/auth.js";
+import {
+  CONTACTS_PERMISSION_MESSAGE,
+  MEMBERS_PERMISSION_MESSAGE,
+  ORDERS_PERMISSION_MESSAGE,
+  PLANS_UNAVAILABLE,
+  buildCommunityRows,
+  communityCsv,
+  communityEmailList,
+  filterCommunityRows,
+  getCommunityMembers,
+} from "../lib/community.js";
 import { pickWinner } from "../lib/draw.js";
-import { activeEntrants, buildMembers } from "../lib/entrants.js";
-import { formatUkDate, isDrawDue, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
-import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, runDraw } from "../lib/lottery.js";
-import { HISTORY_UNAVAILABLE_MESSAGE } from "../lib/store.js";
+import { EMAIL_UNAVAILABLE, activeEntrants, buildMembers, isPendingCancellation, subscriberEmail } from "../lib/entrants.js";
+import { drawFingerprint, hashEntrantRefs, sortedEntryRefs } from "../lib/fairness.js";
+import { DRAW_CATCHUP_MS, formatUkDate, isDrawDue, isWithinDrawWindow, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
+import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, getPublicWinners, runDraw } from "../lib/lottery.js";
+import { MOCK_KNOWN_EMAILS } from "../lib/mock.js";
+import { CMS_NOT_INSTALLED_MESSAGE, HISTORY_UNAVAILABLE_MESSAGE, historyUnavailableMessage } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
 import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
 import { drawCollectionSpec, insertDrawIfAbsent, toDrawRecord } from "../lib/wix.js";
@@ -51,6 +67,29 @@ test("next draw is 20:00 UK time on the 1st", () => {
 
   const later = nextDrawDate(new Date("2026-09-24T08:00:00.000Z"));
   assert.equal(formatUkDate(later, { withTime: true }), "1 October 2026, 20:00 UK time");
+});
+
+test("automatic draw window is the 24 hours after 20:00 UK on the 1st", () => {
+  assert.equal(DRAW_CATCHUP_MS, 24 * 60 * 60 * 1000);
+
+  const septemberOpen = new Date("2026-09-01T19:00:00.000Z");
+  const septemberLate = new Date("2026-09-02T18:59:00.000Z");
+  const septemberClosed = new Date("2026-09-02T19:00:00.000Z");
+  const septemberMidMonth = new Date("2026-09-28T19:44:41.000Z");
+  assert.equal(isWithinDrawWindow(new Date("2026-09-01T18:59:00.000Z")), false);
+  assert.equal(isWithinDrawWindow(septemberOpen), true);
+  assert.equal(isWithinDrawWindow(septemberLate), true);
+  assert.equal(isWithinDrawWindow(septemberClosed), false);
+  assert.equal(isWithinDrawWindow(septemberMidMonth), false);
+  assert.equal(isDrawDue(septemberMidMonth), true);
+
+  const decemberOpen = new Date("2026-12-01T20:00:00.000Z");
+  const decemberLate = new Date("2026-12-02T19:59:00.000Z");
+  const decemberClosed = new Date("2026-12-02T20:00:00.000Z");
+  assert.equal(isWithinDrawWindow(new Date("2026-12-01T19:59:00.000Z")), false);
+  assert.equal(isWithinDrawWindow(decemberOpen), true);
+  assert.equal(isWithinDrawWindow(decemberLate), true);
+  assert.equal(isWithinDrawWindow(decemberClosed), false);
 });
 
 test("pot is 1.25 per active entry", () => {
@@ -131,6 +170,164 @@ test("members collapse to one row and only active rows are drawn", () => {
   assert.deepEqual(entrants.map((member) => member.memberId), ["ada"]);
   assert.equal(pickWinner(entrants, () => 0).name, "Ada Example");
   assert.equal(pickWinner([], () => 0), null);
+});
+
+test("subscriber email prefers the login address, then the contact primary address", () => {
+  assert.equal(
+    subscriberEmail({
+      loginEmail: "login.person@example.com",
+      contact: { emails: ["other.person@example.com"] },
+    }),
+    "login.person@example.com"
+  );
+  assert.equal(
+    subscriberEmail({
+      contact: {
+        emails: [
+          { email: "not.primary@example.com", primary: false },
+          { email: "old.primary@example.com", primary: true },
+        ],
+      },
+    }),
+    "old.primary@example.com"
+  );
+  assert.equal(
+    subscriberEmail({
+      primaryInfo: { email: "ada.contact@example.com" },
+      info: { emails: { items: [{ email: "ada.other@example.com", primary: false }] } },
+    }),
+    "ada.contact@example.com"
+  );
+  assert.equal(subscriberEmail({ contact: { emails: ["first.only@example.com"] } }), "first.only@example.com");
+  assert.equal(subscriberEmail({ loginEmail: "not-an-email" }), "");
+  assert.equal(subscriberEmail(null), "");
+  assert.equal(EMAIL_UNAVAILABLE, "Email unavailable");
+});
+
+test("community rows list active plans for every member", () => {
+  const rows = buildCommunityRows(
+    [
+      { id: "ada", contact: { firstName: "Ada", lastName: "Example" }, loginEmail: "ada.example@example.com" },
+      { id: "ben", contact: { firstName: "Ben", lastName: "Example" }, loginEmail: "ben.example@example.com" },
+      { id: "ada", contact: { firstName: "Duplicate", lastName: "Row" } },
+      { id: "none", contact: { firstName: "No", lastName: "Plan" }, loginEmail: "none.example@example.com" },
+    ],
+    [
+      { status: "ACTIVE", buyer: { memberId: "ada" }, planName: "Notice Board" },
+      { status: "ACTIVE", buyer: { memberId: "ada" }, planName: "AWCA Lottery" },
+      { status: "ACTIVE", buyer: { memberId: "ada" }, planName: "AWCA Lottery" },
+      { status: "CANCELED", buyer: { memberId: "ben" }, planName: "AWCA Lottery" },
+      { status: "ACTIVE", buyer: { memberId: "ben" }, planId: "plan-community" },
+      { status: "ENDED", buyer: { memberId: "none" }, planName: "Notice Board" },
+    ],
+    [{ id: "plan-community", name: "AWCA Community Member" }],
+    new Map()
+  );
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((row) => row.name), ["Ada Example", "Ben Example", "No Plan"]);
+  assert.equal(rows[0].plansLabel, "AWCA Lottery, Notice Board");
+  assert.equal(rows[1].plansLabel, "AWCA Community Member");
+  assert.equal(rows[2].plansLabel, "none");
+  assert.equal("id" in rows[0], false);
+  assert.equal("memberId" in rows[0], false);
+  const blocked = buildCommunityRows(
+    [{ id: "ada", name: "Ada Example", email: "ada.example@example.com" }],
+    [{ status: "ACTIVE", buyer: { memberId: "ada" }, planName: "AWCA Lottery" }],
+    [],
+    new Map(),
+    { plansUnavailable: true }
+  );
+  assert.equal(blocked[0].plansLabel, PLANS_UNAVAILABLE);
+  assert.deepEqual(blocked[0].plans, []);
+  const filtered = filterCommunityRows(rows, "notice");
+  assert.deepEqual(filtered.map((row) => row.name), ["Ada Example"]);
+  assert.deepEqual(communityEmailList([{ email: "ada.example@example.com" }, { email: EMAIL_UNAVAILABLE }, { email: "" }]), [
+    "ada.example@example.com",
+  ]);
+  const csv = communityCsv([
+    { name: 'Ada "Bee", Example', email: "ada.example@example.com", plansLabel: "AWCA Lottery, Notice Board" },
+  ]);
+  assert.equal(csv.split("\n")[0], "Name,Email,Plans");
+  assert.match(csv, /"Ada ""Bee"", Example",ada.example@example.com,"AWCA Lottery, Notice Board"/);
+});
+
+function pendingCancelOrder(memberId, effectiveAt, extra = {}) {
+  return {
+    status: "ACTIVE",
+    autoRenewCanceled: true,
+    buyer: { memberId },
+    startDate: "2026-01-01T00:00:00.000Z",
+    updatedDate: "2026-08-01T00:00:00.000Z",
+    cancellation: { effectiveAt },
+    ...extra,
+  };
+}
+
+test("pending cancellation stays an entry unless EXCLUDE_PENDING_CANCELLATION is set", () => {
+  const orders = [
+    pendingCancelOrder("paid", "NEXT_PAYMENT_DATE"),
+    pendingCancelOrder("ended-now", "IMMEDIATELY"),
+    {
+      status: "ACTIVE",
+      autoRenewCanceled: false,
+      buyer: { memberId: "renewing" },
+      startDate: "2026-01-01T00:00:00.000Z",
+      updatedDate: "2026-08-01T00:00:00.000Z",
+      cancellation: { effectiveAt: "NEXT_PAYMENT_DATE" },
+    },
+    {
+      status: "CANCELED",
+      autoRenewCanceled: true,
+      buyer: { memberId: "gone" },
+      startDate: "2026-01-01T00:00:00.000Z",
+      updatedDate: "2026-08-01T00:00:00.000Z",
+      cancellation: { effectiveAt: "NEXT_PAYMENT_DATE", requestedDate: "2026-08-01T00:00:00.000Z" },
+    },
+  ];
+  const names = new Map([
+    ["paid", "Paid Until"],
+    ["ended-now", "Ended Now"],
+    ["renewing", "Still Renewing"],
+    ["gone", "Already Gone"],
+  ]);
+
+  delete process.env.EXCLUDE_PENDING_CANCELLATION;
+  try {
+    assert.equal(isPendingCancellation(orders[0]), true);
+    assert.equal(isPendingCancellation(orders[1]), false);
+    const counted = buildMembers(orders, names);
+    const paid = counted.find((member) => member.memberId === "paid");
+    assert.equal(paid.pendingCancellation, true);
+    assert.equal(paid.active, true);
+    assert.equal(paid.status, "Active, cancels next payment");
+    assert.equal(counted.find((member) => member.memberId === "ended-now").active, true);
+    assert.equal(counted.find((member) => member.memberId === "renewing").active, true);
+    assert.equal(counted.find((member) => member.memberId === "gone").active, false);
+    assert.deepEqual(
+      activeEntrants(counted).map((member) => member.memberId).sort(),
+      ["ended-now", "paid", "renewing"]
+    );
+
+    for (const flag of ["1", "true", "yes", " YES "]) {
+      process.env.EXCLUDE_PENDING_CANCELLATION = flag;
+      const excluded = buildMembers(orders, names);
+      const held = excluded.find((member) => member.memberId === "paid");
+      assert.equal(held.pendingCancellation, true);
+      assert.equal(held.active, false);
+      assert.equal(held.status, "Active, cancels next payment");
+      assert.equal(excluded.find((member) => member.memberId === "ended-now").active, true);
+      assert.equal(excluded.find((member) => member.memberId === "renewing").active, true);
+      assert.deepEqual(
+        activeEntrants(excluded).map((member) => member.memberId).sort(),
+        ["ended-now", "renewing"]
+      );
+    }
+
+    process.env.EXCLUDE_PENDING_CANCELLATION = "0";
+    assert.equal(buildMembers(orders, names).find((member) => member.memberId === "paid").active, true);
+  } finally {
+    restoreEnv();
+  }
 });
 
 const PRIVATE_NAMES = [
@@ -253,7 +450,7 @@ test("draw storage keeps initials and an entry reference, not the full name", ()
     assert.equal(spec.fields.some((field) => field.key === "winnerName"), false);
     assert.deepEqual(
       spec.fields.map((field) => field.key),
-      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount"]
+      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount", "fingerprint", "entrantsHash", "winnerIndex"]
     );
   } finally {
     restoreEnv();
@@ -295,7 +492,9 @@ test("mock mode serves sample members without Wix credentials", async () => {
     assert.equal("name" in drawn.winner, false);
     assert.equal(drawn.record.initials, initialsFromName(drawn.winner.fullName));
     assert.equal("winnerName" in drawn.record, false);
+    assert.equal(drawn.winner.email, MOCK_KNOWN_EMAILS[drawn.record.memberId]);
     assert.equal(JSON.stringify(drawn.record).includes(drawn.winner.fullName), false);
+    assert.equal(JSON.stringify(drawn.record).includes("@"), false);
 
     const again = await getPublicState([], drawAt);
     assert.equal(again.drawDue, false);
@@ -310,14 +509,23 @@ test("mock mode serves sample members without Wix credentials", async () => {
 
     const members = await getMemberList();
     assert.equal(members.members[0].name, "Sample Member Ada");
+    assert.equal(members.members[0].email, "ada.sample@example.com");
     assert.equal(members.members[0].entryRef, entryReference("mock-ada"));
     assert.equal("memberId" in members.members[0], false);
 
     const adminDraws = await getAdminDraws();
     assert.equal(adminDraws.draws.some((draw) => draw.fullName === "Sample Winner Sam"), true);
     assert.equal(
+      adminDraws.draws.find((draw) => draw.fullName === "Sample Winner Sam")?.email,
+      "sam.sample@example.com"
+    );
+    assert.equal(
       adminDraws.draws.find((draw) => draw.fullName === drawn.winner.fullName)?.label,
       drawn.winner.label
+    );
+    assert.equal(
+      adminDraws.draws.find((draw) => draw.fullName === drawn.winner.fullName)?.email,
+      drawn.winner.email
     );
 
     const fromCookie = await getPublicState(
@@ -407,7 +615,8 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
   try {
     const state = await getPublicState();
     assert.equal(state.historyAvailable, false);
-    assert.equal(state.historyMessage, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(state.historyMessage, CMS_NOT_INSTALLED_MESSAGE);
+    assert.equal(/Wix Editor|Add CMS/i.test(state.historyMessage), false);
     assert.equal(state.lastWinner, null);
     assert.deepEqual(state.history, []);
     assert.equal(state.activeEntries, 1);
@@ -430,7 +639,13 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
     assert.equal(adminDraws.historyAvailable, false);
     assert.deepEqual(adminDraws.draws, []);
 
-    const cmsMessage = new RegExp(HISTORY_UNAVAILABLE_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const winners = await getPublicWinners();
+    assert.equal(winners.historyAvailable, false);
+    assert.equal(winners.message, CMS_NOT_INSTALLED_MESSAGE);
+    assert.deepEqual(winners.winners, []);
+    assert.equal(JSON.stringify(winners).includes("Daniel"), false);
+
+    const cmsMessage = new RegExp(CMS_NOT_INSTALLED_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     await assert.rejects(runDraw(), cmsMessage);
     await assert.rejects(
       ensureMonthlyDraw({ now: new Date("2026-10-01T19:00:00.000Z"), force: false }),
@@ -465,7 +680,10 @@ function fakeRes() {
       this.statusCode = code;
       return this;
     },
-    setHeader() {},
+    headers: {},
+    setHeader(name, value) {
+      this.headers[String(name).toLowerCase()] = value;
+    },
     send(payload) {
       this.body = JSON.parse(payload);
     },
@@ -498,11 +716,27 @@ test("one draw is saved per month even when requests race", async () => {
     assert.equal(first.record.entryCount, 4);
     assert.equal(first.record.potAmount, 5);
     assert.equal(first.record.month, "2026-10");
+    const refs = ["mock-ada", "mock-ben", "mock-cleo", "mock-drew"].map((id) => entryReference(id));
+    assert.equal(first.record.winnerIndex, sortedEntryRefs(refs).indexOf(first.record.entryRef));
+    assert.equal(
+      first.record.fingerprint,
+      drawFingerprint({
+        month: "2026-10",
+        drawnAt: first.record.drawnAt,
+        entryRefs: refs,
+        winnerIndex: first.record.winnerIndex,
+      })
+    );
+    assert.equal(first.record.entrantsHash, hashEntrantRefs(refs));
+    assert.equal(second.record.fingerprint, first.record.fingerprint);
 
     const after = await getPublicState([], summer);
     assert.equal(after.drawDue, false);
     assert.equal(after.lastWinner.entryRef, first.record.entryRef);
+    assert.equal(after.lastWinner.fingerprint, first.record.fingerprint);
+    assert.equal(after.history[0].entrantsHash, first.record.entrantsHash);
     assert.equal(JSON.stringify(after).includes("Sample Member"), false);
+    assert.equal(JSON.stringify(after).includes("memberId"), false);
 
     const winter = new Date("2026-12-01T20:00:00.000Z");
     const raced = await Promise.all([
@@ -520,6 +754,140 @@ test("one draw is saved per month even when requests race", async () => {
     assert.equal(raw.extra.filter((row) => row.month === "2026-10").length, 1);
     assert.equal(raw.extra.filter((row) => row.month === "2026-12").length, 1);
     assert.equal(raw.extra.some((row) => row.month === "2026-11"), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+async function savedMonths(file) {
+  try {
+    const raw = JSON.parse(await readFile(file, "utf8"));
+    return (raw.extra || []).map((row) => row.month);
+  } catch {
+    return [];
+  }
+}
+
+test("storage coming online mid-month does not back-fill a missed draw", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  const file = join(dir, "draws.json");
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = file;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.CRON_SECRET;
+  try {
+    const late = new Date("2026-09-28T19:44:41.000Z");
+    const state = await getPublicState([], late);
+    assert.equal(state.drawDue, false);
+    assert.equal(state.drawMonth, "2026-09");
+    assert.equal(state.lastWinner.month, "2026-08");
+    assert.equal(state.history.some((draw) => draw.month === "2026-09"), false);
+    assert.equal(state.nextDrawLabel, "1 October 2026, 20:00 UK time");
+    assert.equal(state.nextDraw, "2026-10-01T19:00:00.000Z");
+
+    const skipped = await ensureMonthlyDraw({ now: late, force: false });
+    assert.equal(skipped.status, "not-due");
+    assert.equal(skipped.created, false);
+    assert.equal(skipped.month, "2026-09");
+    assert.equal(skipped.reason, "The catch-up window for this month's draw has closed.");
+
+    process.env.CRON_SECRET = "cron-secret";
+    const cron = fakeRes();
+    await cronDraw(
+      {
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: late,
+      },
+      cron
+    );
+    assert.equal(cron.statusCode, 200);
+    assert.equal(cron.body.skipped, true);
+    assert.equal(cron.body.created, false);
+    assert.equal(cron.body.reason, "The catch-up window for this month's draw has closed.");
+    assert.deepEqual(await savedMonths(file), []);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("the 1st at or after 20:00 UK draws the current month exactly once", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  const file = join(dir, "draws.json");
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = file;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.CRON_SECRET;
+  try {
+    const opening = new Date("2026-09-01T19:00:00.000Z");
+    const first = await getPublicState([], opening);
+    assert.equal(first.drawDue, false);
+    assert.equal(first.lastWinner.month, "2026-09");
+    assert.equal(first.lastWinner.drawnAt, opening.toISOString());
+    assert.match(first.lastWinner.label, /^[A-Z](?:\.[A-Z])*\. - Entry [0-9A-F]{6}$/);
+    assert.equal(first.nextDrawLabel, "1 October 2026, 20:00 UK time");
+
+    const laterThatNight = await getPublicState([], new Date("2026-09-01T21:00:00.000Z"));
+    assert.equal(laterThatNight.lastWinner.entryRef, first.lastWinner.entryRef);
+    assert.equal(laterThatNight.lastWinner.drawnAt, first.lastWinner.drawnAt);
+
+    process.env.CRON_SECRET = "cron-secret";
+    const cron = fakeRes();
+    await cronDraw(
+      {
+        method: "GET",
+        headers: { authorization: "Bearer cron-secret" },
+        drawNow: new Date("2026-09-01T22:00:00.000Z"),
+      },
+      cron
+    );
+    assert.equal(cron.body.created, false);
+    assert.equal(cron.body.month, "2026-09");
+    assert.equal(cron.body.entryRef, first.lastWinner.entryRef);
+    assert.deepEqual(await savedMonths(file), ["2026-09"]);
+
+    const morningAfter = await ensureMonthlyDraw({ now: new Date("2026-09-02T18:59:00.000Z"), force: false });
+    assert.equal(morningAfter.created, false);
+    assert.equal(morningAfter.status, "exists");
+    assert.deepEqual(await savedMonths(file), ["2026-09"]);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("a fresh month still draws once inside the catch-up window and not after it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  const file = join(dir, "draws.json");
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = file;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  delete process.env.ENTRY_REF_SECRET;
+  delete process.env.ADMIN_PASSWORD;
+  try {
+    const closed = await getPublicState([], new Date("2026-09-02T19:00:00.000Z"));
+    assert.equal(closed.drawDue, false);
+    assert.equal(closed.lastWinner.month, "2026-08");
+    assert.deepEqual(await savedMonths(file), []);
+
+    const caughtUp = await ensureMonthlyDraw({ now: new Date("2026-12-02T19:59:00.000Z"), force: false });
+    assert.equal(caughtUp.created, true);
+    assert.equal(caughtUp.month, "2026-12");
+    const repeat = await ensureMonthlyDraw({ now: new Date("2026-12-02T19:59:30.000Z"), force: false });
+    assert.equal(repeat.created, false);
+    assert.equal(repeat.record.entryRef, caughtUp.record.entryRef);
+
+    const tooLate = await ensureMonthlyDraw({ now: new Date("2026-12-02T20:00:00.000Z"), force: false });
+    assert.equal(tooLate.status, "not-due");
+    assert.equal(tooLate.created, false);
+    assert.deepEqual((await savedMonths(file)).filter((month) => month === "2026-12"), ["2026-12"]);
+    assert.equal((await savedMonths(file)).includes("2026-09"), false);
   } finally {
     restoreEnv();
   }
@@ -551,6 +919,13 @@ test("a conflicting insert keeps the winner already saved", async () => {
         status,
         headers: { "Content-Type": "application/json" },
       });
+    if (path.includes("/wix-data/v2/collections/") && !path.includes("/items")) {
+      return json({
+        collection: {
+          fields: [{ key: "fingerprint" }, { key: "entrantsHash" }, { key: "winnerIndex" }],
+        },
+      });
+    }
     if (path.includes("/wix-data/v2/items/2026-10")) {
       return json({ dataItem: saved });
     }
@@ -711,6 +1086,24 @@ test("the drum source has no gold ring mesh", async () => {
   assert.match(source, /function frameCamera/);
 });
 
+test("the drum countdown uses the server next draw time", async () => {
+  const source = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
+  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(html, /id="drum-countdown"/);
+  assert.match(html, /Next draw in/);
+  assert.match(html, /Draw in progress/);
+  assert.match(html, />Days</);
+  assert.match(html, />Hours</);
+  assert.match(html, />Minutes</);
+  assert.match(html, />Seconds</);
+  const live = source.slice(source.indexOf("function paintCountdown"), source.indexOf("function ensureCountdown"));
+  assert.match(live, /latestState\.nextDraw/);
+  assert.match(live, /paintDrumCountdown\(0, "progress"\)/);
+  assert.match(live, /paintDrumCountdown\(remain, "count"\)/);
+  assert.equal(live.includes("nextDrawDate"), false);
+  assert.equal(/[\u2013\u2014]/.test(html + source), false);
+});
+
 test("demo countdown rehearses draw night without calling the server", async () => {
   const source = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
   assert.match(source, /demo=1&countdown=10|countdown/);
@@ -720,6 +1113,751 @@ test("demo countdown rehearses draw night without calling the server", async () 
   const night = source.slice(source.indexOf("function startDemoNight"), source.indexOf("function startDemo("));
   assert.equal(night.includes("fetch("), false);
   assert.match(night, /demoNightRefs\(40\)/);
+});
+
+test("draw fingerprint is a stable hash of the sorted draw inputs", () => {
+  const drawnAt = "2026-10-01T19:00:00.000Z";
+  const first = drawFingerprint({
+    month: "2026-10",
+    drawnAt,
+    entryRefs: ["BBBBBB", "AAAAAA", "CCCCCC"],
+    winnerIndex: 1,
+  });
+  const second = drawFingerprint({
+    month: "2026-10",
+    drawnAt,
+    entryRefs: ["CCCCCC", "AAAAAA", "BBBBBB"],
+    winnerIndex: 1,
+  });
+  const expected = createHash("sha256")
+    .update(["2026-10", drawnAt, "1", "AAAAAA", "BBBBBB", "CCCCCC"].join("\n"))
+    .digest("hex");
+  assert.equal(first, second);
+  assert.equal(first, expected);
+  assert.equal(first.length, 64);
+  assert.notEqual(
+    drawFingerprint({
+      month: "2026-10",
+      drawnAt,
+      entryRefs: ["AAAAAA", "BBBBBB", "CCCCCC"],
+      winnerIndex: 0,
+    }),
+    first
+  );
+  const entrants = hashEntrantRefs(["CCCCCC", "AAAAAA", "BBBBBB"]);
+  assert.equal(
+    entrants,
+    createHash("sha256").update(["AAAAAA", "BBBBBB", "CCCCCC"].join("\n")).digest("hex")
+  );
+  assert.notEqual(entrants, first);
+});
+
+test("history messages name CMS only for WDE0110", () => {
+  assert.equal(
+    historyUnavailableMessage({ message: "WDE0110: Wix CMS app is not installed for site." }),
+    CMS_NOT_INSTALLED_MESSAGE
+  );
+  assert.equal(/Wix Editor|Add CMS/i.test(CMS_NOT_INSTALLED_MESSAGE), false);
+  const other = historyUnavailableMessage({ message: "Wix returned an error: storage timeout", code: "WIX_ERROR" });
+  assert.equal(other, HISTORY_UNAVAILABLE_MESSAGE);
+  assert.equal(/Wix CMS|Wix Editor|Add CMS/i.test(other), false);
+});
+
+function assertNoEmail(value, label) {
+  const json = JSON.stringify(value);
+  assert.equal(json.includes("@"), false, `${label} contains an email address`);
+  assert.equal(json.includes("email"), false, `${label} contains an email field`);
+  assert.equal(json.includes(EMAIL_UNAVAILABLE), false, `${label} contains the admin email fallback`);
+  assert.equal(json.includes("login.person@example.com"), false);
+  assert.equal(json.includes("ada.contact@example.com"), false);
+  assert.equal(json.includes("old.primary@example.com"), false);
+  assert.equal(json.includes("stored-secret@example.com"), false);
+}
+
+test("public endpoints never contain an email, and admin views do", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.WIX_LOTTERY_PLAN_ID = "plan-1";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  process.env.ADMIN_PASSWORD = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  let contactsForbidden = false;
+  const contactCalls = [];
+  const members = {
+    "member-login": {
+      id: "member-login",
+      loginEmail: "login.person@example.com",
+      contactId: "c-login",
+      contact: { firstName: "Login", lastName: "Person", emails: ["other.person@example.com"] },
+    },
+    "member-contact": {
+      id: "member-contact",
+      contactId: "c-contact",
+      contact: { firstName: "Ada", lastName: "Contact", emails: [] },
+    },
+    "member-old": {
+      id: "member-old",
+      contactId: "c-old",
+      contact: {
+        firstName: "Old",
+        lastName: "Winner",
+        emails: [
+          { email: "not.primary@example.com", primary: false },
+          { email: "old.primary@example.com", primary: true },
+        ],
+      },
+    },
+  };
+
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/pricing-plans/v3/plans/query")) {
+      return json({
+        plans: [
+          {
+            id: "plan-1",
+            name: "Community Lottery",
+            currency: "GBP",
+            pricingVariants: [{ pricingStrategies: [{ flatRate: { amount: "2.50" } }] }],
+          },
+        ],
+      });
+    }
+    if (path.includes("/pricing-plans/v2/orders")) {
+      return json({
+        orders: [
+          {
+            status: "ACTIVE",
+            buyer: { memberId: "member-login" },
+            startDate: "2026-01-05T10:00:00.000Z",
+            updatedDate: "2026-01-05T10:00:00.000Z",
+          },
+          {
+            status: "ACTIVE",
+            buyer: { memberId: "member-contact" },
+            startDate: "2026-02-05T10:00:00.000Z",
+            updatedDate: "2026-02-05T10:00:00.000Z",
+          },
+        ],
+        pagingMetadata: { total: 2, hasNext: false },
+      });
+    }
+    if (path.includes("/members/v1/members/query")) {
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body.fieldsets, ["FULL"]);
+      const ids = body.query.filter.id.$in;
+      return json({ members: ids.map((id) => members[id]).filter(Boolean) });
+    }
+    if (path.includes("/contacts/v4/contacts/query")) {
+      contactCalls.push(JSON.parse(options.body));
+      if (contactsForbidden) {
+        return json({ message: "Forbidden" }, 403);
+      }
+      const ids = JSON.parse(options.body).query.filter.id.$in;
+      assert.deepEqual(ids, ["c-contact"]);
+      return json({
+        contacts: [
+          {
+            id: "c-contact",
+            primaryInfo: { email: "ada.contact@example.com" },
+            info: {
+              emails: {
+                items: [
+                  { email: "ada.other@example.com", primary: false },
+                  { email: "ada.contact@example.com", primary: true },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+    if (path.includes("/wix-data/v2/items/query")) {
+      return json({
+        dataItems: [
+          {
+            id: "2026-08",
+            data: {
+              memberId: "member-old",
+              initials: "O.W.",
+              entryRef: "ABC123",
+              month: "2026-08",
+              drawnAt: "2026-08-01T19:00:00.000Z",
+              entryCount: 2,
+              potAmount: 2.5,
+              email: "stored-secret@example.com",
+              winnerName: "Old Winner",
+              fullName: "Old Winner",
+            },
+          },
+        ],
+      });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+
+  const now = new Date("2026-09-28T12:00:00.000Z");
+  try {
+    const state = await getPublicState([], now);
+    const winners = await getPublicWinners();
+    const stateRes = fakeRes();
+    await stateApi({ method: "GET", headers: {} }, stateRes);
+    const winnersRes = fakeRes();
+    await winnersApi({ method: "GET", headers: {} }, winnersRes);
+    assertNoEmail(state, "getPublicState");
+    assertNoEmail(winners, "getPublicWinners");
+    assertNoEmail(stateRes.body, "/api/state");
+    assertNoEmail(winnersRes.body, "/api/winners");
+    assert.equal(state.lastWinner.label, "O.W. - Entry ABC123");
+    assert.equal(winners.winners[0].label, "O.W. - Entry ABC123");
+    assert.equal(contactCalls.length > 0, true);
+
+    const list = await getMemberList();
+    const ada = list.members.find((member) => member.name === "Ada Contact");
+    const login = list.members.find((member) => member.name === "Login Person");
+    assert.equal(ada.email, "ada.contact@example.com");
+    assert.equal(login.email, "login.person@example.com");
+    assert.equal("memberId" in ada, false);
+
+    const adminDraws = await getAdminDraws();
+    assert.equal(adminDraws.draws[0].fullName, "Old Winner");
+    assert.equal(adminDraws.draws[0].email, "old.primary@example.com");
+    assert.equal(JSON.stringify(adminDraws).includes("stored-secret@example.com"), false);
+
+    contactsForbidden = true;
+    const blocked = await getMemberList();
+    assert.equal(blocked.members.find((member) => member.name === "Ada Contact").email, EMAIL_UNAVAILABLE);
+    assert.equal(blocked.members.find((member) => member.name === "Login Person").email, "login.person@example.com");
+    const stillPublic = await getPublicState([], now);
+    assertNoEmail(stillPublic, "getPublicState after contacts forbidden");
+    const stillWinners = fakeRes();
+    await winnersApi({ method: "GET", headers: {} }, stillWinners);
+    assertNoEmail(stillWinners.body, "/api/winners after contacts forbidden");
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("community members stay behind the admin password and out of public draws", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
+  process.env.ADMIN_PASSWORD = "committee-secret";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  try {
+    const state = await getPublicState([], new Date("2026-09-28T12:00:00.000Z"));
+    const winners = await getPublicWinners();
+    const stateRes = fakeRes();
+    await stateApi({ method: "GET", headers: {} }, stateRes);
+    const winnersRes = fakeRes();
+    await winnersApi({ method: "GET", headers: {} }, winnersRes);
+    const drawn = await runDraw(new Date("2026-09-24T08:00:00.000Z"));
+    for (const payload of [state, winners, stateRes.body, winnersRes.body, drawn.record]) {
+      const json = JSON.stringify(payload);
+      assert.equal(json.includes("pat.neighbour@example.com"), false);
+      assert.equal(json.includes("quinn.neighbour@example.com"), false);
+      assert.equal(json.includes("@"), false);
+    }
+    assert.equal(JSON.stringify(drawn.record).includes("email"), false);
+
+    const lottery = await getMemberList();
+    assert.equal(lottery.members.some((member) => member.email === "ada.sample@example.com"), true);
+    assert.equal(lottery.members.some((member) => member.email === "pat.neighbour@example.com"), false);
+
+    const denied = fakeRes();
+    await communityApi({ method: "GET", headers: {} }, denied);
+    assert.equal(denied.statusCode, 401);
+
+    const posted = fakeRes();
+    await communityApi({ method: "POST", headers: {} }, posted);
+    assert.equal(posted.statusCode, 405);
+
+    const token = issueToken("committee-secret");
+    const allowed = fakeRes();
+    await communityApi(
+      { method: "GET", headers: { cookie: `awca_admin=${encodeURIComponent(token)}` } },
+      allowed
+    );
+    assert.equal(allowed.statusCode, 200);
+    const pat = allowed.body.members.find((member) => member.name === "Sample Neighbour Pat");
+    const quinn = allowed.body.members.find((member) => member.name === "Sample Neighbour Quinn");
+    const ben = allowed.body.members.find((member) => member.name === "Sample Member Ben");
+    assert.equal(pat.email, "pat.neighbour@example.com");
+    assert.equal(pat.plansLabel, "AWCA Community Member");
+    assert.equal(quinn.plansLabel, "none");
+    assert.equal(ben.plansLabel, "AWCA Lottery, Notice Board");
+    assert.equal(JSON.stringify(allowed.body).includes("memberId"), false);
+    assert.equal(lottery.members[0].email.includes("@"), true);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("community members page through Wix and name a missing permission", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  function member(index, extra = {}) {
+    return {
+      id: `member-${index}`,
+      loginEmail: `member${index}@example.com`,
+      contact: { firstName: "Member", lastName: String(index) },
+      ...extra,
+    };
+  }
+
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    calls.push(path);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/members/v1/members/query")) {
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body.fieldsets, ["FULL"]);
+      const offset = body.query.paging.offset;
+      if (offset === 0) {
+        const members = Array.from({ length: 100 }, (_, index) => member(index));
+        members[1] = member(1);
+        members[2] = member(2);
+        members[3] = member(3);
+        return json({ members, metadata: { total: 101, count: 100, offset: 0 } });
+      }
+      assert.equal(offset, 100);
+      return json({
+        members: [member(100, { loginEmail: "", contactId: "c-100", contact: { firstName: "Member", lastName: "100", emails: [] } })],
+        metadata: { total: 101, count: 1, offset: 100 },
+      });
+    }
+    if (path.includes("/contacts/v4/contacts/query")) {
+      const ids = JSON.parse(options.body).query.filter.id.$in;
+      assert.deepEqual(ids, ["c-100"]);
+      return json({ contacts: [{ id: "c-100", primaryInfo: { email: "member100@example.com" } }] });
+    }
+    if (path.includes("/pricing-plans/v2/orders")) {
+      const query = new URL(path).searchParams;
+      assert.equal(query.get("planIds"), null);
+      const offset = Number(query.get("offset"));
+      if (offset === 0) {
+        const orders = Array.from({ length: 50 }, (_, index) => ({
+          status: "ACTIVE",
+          buyer: { memberId: `not-a-site-member-${index}` },
+          planName: "Ignore Me",
+        }));
+        return json({ orders, pagingMetadata: { total: 54, hasNext: true } });
+      }
+      assert.equal(offset, 50);
+      return json({
+        orders: [
+          { status: "ACTIVE", buyer: { memberId: "member-0" }, planName: "AWCA Lottery" },
+          { status: "CANCELED", buyer: { memberId: "member-1" }, planName: "AWCA Lottery" },
+          { status: "ACTIVE", buyer: { memberId: "member-2" }, planName: "Notice Board" },
+          { status: "ACTIVE", buyer: { memberId: "member-2" }, planId: "plan-community" },
+          { status: "ACTIVE", buyer: { memberId: "member-100" }, planId: "plan-notice" },
+        ],
+        pagingMetadata: { total: 55, hasNext: false },
+      });
+    }
+    if (path.includes("/pricing-plans/v3/plans/query")) {
+      return json({
+        plans: [
+          { id: "plan-notice", name: "Notice Board" },
+          { id: "plan-community", name: "AWCA Community Member" },
+        ],
+      });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+
+  try {
+    const directory = await getCommunityMembers();
+    assert.equal(directory.available, true);
+    assert.equal(directory.members.length, 101);
+    assert.equal(directory.emailMessage, "");
+    assert.equal(directory.plansMessage, "");
+    const byEmail = new Map(directory.members.map((row) => [row.email, row]));
+    assert.equal(byEmail.get("member0@example.com").plansLabel, "AWCA Lottery");
+    assert.equal(byEmail.get("member1@example.com").plansLabel, "none");
+    assert.equal(byEmail.get("member2@example.com").plansLabel, "AWCA Community Member, Notice Board");
+    assert.equal(byEmail.get("member3@example.com").plansLabel, "none");
+    assert.equal(byEmail.get("member100@example.com").plansLabel, "Notice Board");
+    assert.equal(JSON.stringify(directory).includes("memberId"), false);
+    assert.equal(JSON.stringify(directory).includes("Ignore Me"), false);
+    assert.equal(calls.some((path) => path.includes("/wix-data/")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("a community directory permission failure names the Wix scope", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  const originalFetch = globalThis.fetch;
+
+  function json(body, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    if (path.includes("/members/v1/members/query")) return json({ message: "Forbidden" }, 403);
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const blocked = await getCommunityMembers();
+    assert.equal(blocked.available, false);
+    assert.equal(blocked.message, MEMBERS_PERMISSION_MESSAGE);
+    assert.deepEqual(blocked.members, []);
+    assert.equal(blocked.message.includes("SCOPE.DC-MEMBERS.READ-MEMBERS"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.includes("/members/v1/members/query")) {
+      return json({
+        members: [
+          {
+            id: "member-login",
+            loginEmail: "login.person@example.com",
+            contact: { firstName: "Login", lastName: "Person" },
+          },
+          {
+            id: "member-contact",
+            contactId: "c-contact",
+            contact: { firstName: "Ada", lastName: "Contact", emails: [] },
+          },
+        ],
+        metadata: { total: 2, count: 2, offset: 0 },
+      });
+    }
+    if (path.includes("/contacts/v4/contacts/query")) return json({ message: "Forbidden" }, 403);
+    if (path.includes("/pricing-plans/v2/orders")) return json({ message: "Forbidden" }, 403);
+    if (path.includes("/pricing-plans/v3/plans/query")) throw new Error("plans should wait until orders succeed");
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const partial = await getCommunityMembers();
+    assert.equal(partial.available, true);
+    assert.equal(partial.emailMessage, CONTACTS_PERMISSION_MESSAGE);
+    assert.equal(partial.plansMessage, ORDERS_PERMISSION_MESSAGE);
+    assert.equal(partial.emailMessage.includes("SCOPE.DC-CONTACTS.READ-CONTACTS"), true);
+    assert.equal(partial.plansMessage.includes("SCOPE.DC-PAIDPLANS.READ-ORDERS"), true);
+    const login = partial.members.find((member) => member.name === "Login Person");
+    const ada = partial.members.find((member) => member.name === "Ada Contact");
+    assert.equal(login.email, "login.person@example.com");
+    assert.equal(login.plansLabel, PLANS_UNAVAILABLE);
+    assert.equal(ada.email, EMAIL_UNAVAILABLE);
+    assert.equal(JSON.stringify(partial).includes("member-login"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("public winners omit names and member ids", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  delete process.env.ADMIN_PASSWORD;
+  const fingerprint = "ab".repeat(32);
+  const entrantsHash = "cd".repeat(32);
+  await writeFile(
+    process.env.MOCK_DRAW_FILE,
+    JSON.stringify({
+      extra: [
+        {
+          memberId: "member-1",
+          winnerName: "Daniel Monks",
+          fullName: "Daniel Monks",
+          email: "daniel@example.com",
+          initials: "D.M.",
+          entryRef: "4F7A2C",
+          month: "2026-09",
+          drawnAt: "2026-09-01T19:00:00.000Z",
+          entryCount: 8,
+          potAmount: 10,
+          fingerprint,
+          entrantsHash,
+          winnerIndex: 3,
+        },
+      ],
+    }),
+    "utf8"
+  );
+  try {
+    const denied = fakeRes();
+    await winnersApi({ method: "POST" }, denied);
+    assert.equal(denied.statusCode, 405);
+
+    const res = fakeRes();
+    await winnersApi({ method: "GET" }, res);
+    assert.equal(res.statusCode, 200);
+    assert.match(res.headers["cache-control"], /s-maxage=300/);
+    assert.equal(res.body.historyAvailable, true);
+    assert.equal("message" in res.body, false);
+    const winner = res.body.winners.find((draw) => draw.month === "2026-09");
+    assert.equal(winner.label, "D.M. - Entry 4F7A2C");
+    assert.equal(winner.pot, 10);
+    assert.equal(winner.entryCount, 8);
+    assert.equal(winner.drawnAt, "2026-09-01T19:00:00.000Z");
+    assert.equal(winner.fingerprint, fingerprint);
+    assert.equal(winner.entrantsHash, entrantsHash);
+    const allowed = new Set([
+      "month",
+      "label",
+      "pot",
+      "potLabel",
+      "entryCount",
+      "drawnAt",
+      "drawnAtLabel",
+      "fingerprint",
+      "entrantsHash",
+    ]);
+    for (const draw of res.body.winners) {
+      for (const key of Object.keys(draw)) {
+        assert.equal(allowed.has(key), true, key);
+      }
+      assert.match(draw.label, /^(?:[A-Z](?:\.[A-Z])*\. - )?Entry [0-9A-F]{6}$|^[A-Z](?:\.[A-Z])*\. - Entry [0-9A-F]{6}$/);
+    }
+    const json = JSON.stringify(res.body);
+    assert.equal(json.includes("Daniel Monks"), false);
+    assert.equal(json.includes("member-1"), false);
+    assert.equal(json.includes("mock-sam"), false);
+    assert.equal(json.includes("daniel@example.com"), false);
+    assert.equal(json.includes("memberId"), false);
+    assert.equal(json.includes("winnerName"), false);
+    assert.equal(json.includes("fullName"), false);
+    assert.equal(json.includes("email"), false);
+    assert.equal(json.includes("@"), false);
+    assert.equal(json.includes("Sample"), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("other storage errors stay neutral and are not cached as winners", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: "storage timeout" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  try {
+    const body = await getPublicWinners();
+    assert.equal(body.historyAvailable, false);
+    assert.equal(body.message, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(/Wix CMS|Wix Editor|Add CMS|WIX_API_KEY/i.test(body.message), false);
+    assert.deepEqual(body.winners, []);
+
+    const res = fakeRes();
+    await winnersApi({ method: "GET" }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers["cache-control"], "no-store");
+    assert.equal(res.body.message, HISTORY_UNAVAILABLE_MESSAGE);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("public winners do not explain how to configure Wix", async () => {
+  delete process.env.WIX_MOCK;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  try {
+    const body = await getPublicWinners();
+    assert.equal(body.historyAvailable, false);
+    assert.equal(body.message, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(JSON.stringify(body).includes("WIX_API_KEY"), false);
+    assert.equal(/Wix Editor|Add CMS/i.test(body.message), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("a saved draw keeps the month as the item id and stores the fingerprint", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const fingerprint = "ab".repeat(32);
+  const entrantsHash = "cd".repeat(32);
+  let posted = null;
+  let createdFields = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/collections/create-field")) {
+      createdFields += 1;
+      const body = JSON.parse(options.body);
+      assert.equal(body.dataCollectionId, "LotteryDraws");
+      return json({});
+    }
+    if (path.includes("/wix-data/v2/collections/")) {
+      return json({ collection: { fields: [] } });
+    }
+    if (path.endsWith("/wix-data/v2/items") && options.method === "POST") {
+      posted = JSON.parse(options.body);
+      return json({ dataItem: posted.dataItem });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const result = await insertDrawIfAbsent({
+      memberId: "member-1",
+      initials: "D.M.",
+      entryRef: "4F7A2C",
+      month: "2026-10",
+      drawnAt: "2026-10-01T19:00:00.000Z",
+      entryCount: 3,
+      potAmount: 3.75,
+      fingerprint,
+      entrantsHash,
+      winnerIndex: 0,
+      email: "daniel@example.com",
+      fullName: "Daniel Monks",
+    });
+    assert.equal(createdFields, 3);
+    assert.equal(posted.dataItem.id, "2026-10");
+    assert.equal(posted.dataItem.data.fingerprint, fingerprint);
+    assert.equal(posted.dataItem.data.entrantsHash, entrantsHash);
+    assert.equal(posted.dataItem.data.winnerIndex, 0);
+    assert.equal(posted.dataItem.data.memberId, "member-1");
+    assert.equal("winnerName" in posted.dataItem.data, false);
+    assert.equal("email" in posted.dataItem.data, false);
+    assert.equal("fullName" in posted.dataItem.data, false);
+    assert.equal(JSON.stringify(posted.dataItem.data).includes("@"), false);
+    assert.equal(JSON.stringify(result.record).includes("@"), false);
+    assert.equal(result.created, true);
+    assert.equal(result.record.fingerprint, fingerprint);
+    assert.equal(result.record.winnerIndex, 0);
+    assert.equal(JSON.stringify(result.record).includes("Daniel"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+const EMBED_FRAME_ANCESTORS =
+  "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com";
+
+test("only the winners embed can be framed, and only by the Wix site", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const embed = config.headers.find((rule) => rule.source === "/winners-embed");
+  const embedCsp = embed.headers.find((header) => header.key === "Content-Security-Policy").value;
+  assert.equal(embedCsp, EMBED_FRAME_ANCESTORS);
+  assert.equal(embed.headers.some((header) => header.key === "X-Frame-Options"), false);
+  const nested = config.headers.find((rule) => rule.source === "/winners-embed/(.*)");
+  assert.equal(nested.headers.find((header) => header.key === "Content-Security-Policy").value, EMBED_FRAME_ANCESTORS);
+  const deny = config.headers.find((rule) => rule.source.includes("(?!winners-embed)"));
+  assert.equal(deny.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors 'none'");
+  assert.equal(deny.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
+});
+
+test("the AWCA favicon is linked on every page and cached", async () => {
+  const iconCache = "public, max-age=86400, s-maxage=604800";
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const iconRule = config.headers.find((rule) => String(rule.source).includes("favicon.ico"));
+  assert.equal(iconRule.headers.find((header) => header.key === "Cache-Control").value, iconCache);
+  assert.equal(iconRule.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
+  const manifestRule = config.headers.find((rule) => rule.source === "/site.webmanifest");
+  assert.equal(manifestRule.headers.find((header) => header.key === "Cache-Control").value, iconCache);
+  assert.equal(
+    manifestRule.headers.find((header) => header.key === "Content-Type").value,
+    "application/manifest+json"
+  );
+
+  const manifest = JSON.parse(await readFile(new URL("../public/site.webmanifest", import.meta.url), "utf8"));
+  assert.equal(manifest.theme_color, "#1f3b5c");
+  assert.deepEqual(
+    manifest.icons.map((icon) => icon.sizes),
+    ["192x192", "512x512"]
+  );
+
+  function pngSize(bytes) {
+    assert.equal(bytes.subarray(1, 4).toString(), "PNG");
+    return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+
+  const root = new URL("../public/", import.meta.url);
+  const png32 = Buffer.from(await readFile(new URL("favicon-32x32.png", root)));
+  const apple = Buffer.from(await readFile(new URL("apple-touch-icon.png", root)));
+  const icon192 = Buffer.from(await readFile(new URL("icon-192.png", root)));
+  const icon512 = Buffer.from(await readFile(new URL("icon-512.png", root)));
+  assert.deepEqual(pngSize(png32), { width: 32, height: 32 });
+  assert.deepEqual(pngSize(apple), { width: 180, height: 180 });
+  assert.deepEqual(pngSize(icon192), { width: 192, height: 192 });
+  assert.deepEqual(pngSize(icon512), { width: 512, height: 512 });
+
+  const ico = Buffer.from(await readFile(new URL("favicon.ico", root)));
+  assert.equal(ico.readUInt16LE(0), 0);
+  assert.equal(ico.readUInt16LE(2), 1);
+  assert.equal(ico.readUInt16LE(4), 3);
+  const icoSizes = [];
+  for (let i = 0; i < 3; i += 1) icoSizes.push(ico[6 + i * 16] || 256);
+  assert.deepEqual(icoSizes, [16, 32, 48]);
+
+  const pages = ["../public/index.html", "../public/demo.html", "../public/winners-embed/index.html"];
+  for (const file of pages) {
+    const html = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.match(html, /<meta name="theme-color" content="#1f3b5c" \/>/);
+    assert.match(html, /href="\/favicon\.ico"/);
+    assert.match(html, /href="\/favicon-32x32\.png"/);
+    assert.match(html, /href="\/apple-touch-icon\.png"/);
+    assert.match(html, /href="\/site\.webmanifest"/);
+  }
+  const index = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+  assert.match(index, /src="AWCA%20Logo\.jpg"/);
+});
+
+test("public copy does not tell visitors to add CMS in the editor", async () => {
+  const files = ["../lib/store.js", "../public/main.js", "../public/winners-embed/index.html", "../README.md"];
+  for (const file of files) {
+    const text = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.equal(/Add CMS in the Wix Editor/i.test(text), false, file);
+  }
+  const embed = await readFile(new URL("../public/winners-embed/index.html", import.meta.url), "utf8");
+  assert.match(embed, /No draws yet\. The first draw is on 1 October 2026 at 8pm\./);
+  assert.match(embed, /Example data\. Not a real draw\./);
+  assert.match(embed, /\/api\/winners/);
+  assert.match(embed, /createElement\("details"\)/);
+  const main = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
+  assert.match(main, /Fairness check: \$\{draw\.fingerprint\}/);
+  assert.match(main, /Entrants check: \$\{draw\.entrantsHash\}/);
 });
 
 test("source files do not contain em or en dashes", async () => {
@@ -737,7 +1875,7 @@ test("source files do not contain em or en dashes", async () => {
         await walk(path);
         continue;
       }
-      if (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)) continue;
+      if (/\.(jpg|jpeg|png|gif|webp|ico)$/i.test(name)) continue;
       const text = await readFile(path, "utf8");
       for (const mark of banned) {
         assert.equal(text.includes(mark), false, `${path} contains a banned dash`);

@@ -5,6 +5,11 @@
   <title>AWCA Lottery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="AWCA lottery for Alconbury Weald. Active entries, prize pot, and the last winner." />
+  <meta name="theme-color" content="#1f3b5c" />
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -62,7 +67,6 @@
   <section class="awca-3d-panel">
     <div class="awca-drum-head">
       <h2>Lottery drum</h2>
-      <button id="replay-draw" class="awca-secondary-btn" type="button" hidden>Replay draw</button>
     </div>
     <div class="awca-stage">
       <canvas id="lotteryCanvas" aria-label="Lottery drum. Each ball shows an entry reference."></canvas>
@@ -72,6 +76,16 @@
         <p id="winner-card-label"></p>
       </div>
       <div id="confetti" class="awca-confetti" aria-hidden="true"></div>
+    </div>
+    <div id="drum-countdown" class="awca-drum-countdown" role="timer">
+      <p id="drum-countdown-label">Next draw in</p>
+      <div id="drum-countdown-digits" class="awca-drum-digits">
+        <div><span id="cd-days">00</span><small>Days</small></div>
+        <div><span id="cd-hours">00</span><small>Hours</small></div>
+        <div><span id="cd-minutes">00</span><small>Minutes</small></div>
+        <div><span id="cd-seconds">00</span><small>Seconds</small></div>
+      </div>
+      <p id="drum-countdown-status" class="awca-drum-status" hidden>Draw in progress</p>
     </div>
     <p id="example-notice" class="awca-subtext" hidden>Example data only. Nothing here is a real draw.</p>
     <div id="demo-controls" class="awca-demo" hidden>
@@ -85,7 +99,7 @@
 <section class="awca-admin-wrap">
   <div class="awca-panel">
     <h2>Member status</h2>
-        <p class="awca-subtext">Sign in to see each member's full name beside their entry reference. Draw Winner is the manual fallback if the 20:00 UK draw did not run. The public page shows initials and the entry reference only.</p>
+        <p class="awca-subtext">Sign in to see each member's full name and email beside their entry reference. Draw Winner is the manual fallback if the 20:00 UK draw did not run. The public page shows initials and the entry reference only.</p>
 
     <form id="admin-form" class="awca-admin-form">
       <label for="admin-password">Admin password</label>
@@ -102,7 +116,7 @@
       <p id="draw-result" class="awca-result-line">No draw yet this session.</p>
       <div class="awca-result">
         <h3>Official draw record</h3>
-        <p class="awca-subtext">Full names are loaded live for the committee. They are not saved with the draw.</p>
+        <p class="awca-subtext">Full names and email addresses are loaded live for the committee. They are not saved with the draw.</p>
         <ul id="admin-history" class="awca-history"></ul>
       </div>
       <div class="awca-table-wrap">
@@ -110,6 +124,7 @@
           <thead>
             <tr>
               <th>Name</th>
+              <th>Email</th>
               <th>Entry reference</th>
               <th>Status</th>
               <th>Start date</th>
@@ -118,6 +133,30 @@
           </thead>
           <tbody id="member-rows"></tbody>
         </table>
+      </div>
+      <div class="awca-result">
+        <h3>Community members</h3>
+        <p class="awca-subtext">Every site member, not only lottery subscribers. Names and emails stay in this admin section.</p>
+        <p id="community-message" class="awca-subtext" hidden></p>
+        <div class="awca-admin-actions">
+          <label for="community-search">Search</label>
+          <input id="community-search" type="search" placeholder="Name, email, or plan" autocomplete="off" />
+          <button id="community-copy" class="awca-secondary-btn" type="button">Copy emails</button>
+          <button id="community-csv" class="awca-secondary-btn" type="button">Download CSV</button>
+        </div>
+        <p id="community-count" class="awca-subtext"></p>
+        <div class="awca-table-wrap">
+          <table class="awca-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Plans</th>
+              </tr>
+            </thead>
+            <tbody id="community-rows"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

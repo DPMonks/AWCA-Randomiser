@@ -1,5 +1,4 @@
-const HISTORY_UNAVAILABLE_MESSAGE =
-  "Draw history is unavailable because Wix CMS is not added to the site yet. Add CMS in the Wix Editor and save to turn on draw history.";
+const HISTORY_UNAVAILABLE_MESSAGE = "Draw history is unavailable right now.";
 
 const notice = document.getElementById("notice");
 const adminForm = document.getElementById("admin-form");
@@ -54,6 +53,15 @@ function pastWinnerText(draw) {
   return `${monthTitle(draw.month)}: ${draw.label}. ${draw.entryCount} entries, pot ${draw.potLabel}.`;
 }
 
+function pastWinnerDetail(draw) {
+  if (!draw) return "";
+  const parts = [pastWinnerText(draw)];
+  if (draw.drawnAtLabel) parts.push(`Drawn ${draw.drawnAtLabel}.`);
+  if (draw.fingerprint) parts.push(`Fairness check: ${draw.fingerprint}.`);
+  if (draw.entrantsHash) parts.push(`Entrants check: ${draw.entrantsHash}.`);
+  return parts.join(" ");
+}
+
 function seenKey(draw) {
   return `awca-seen:${draw.month || ""}:${draw.entryRef || ""}:${draw.drawnAt || ""}`;
 }
@@ -73,20 +81,7 @@ function playWinner(draw) {
   else queuedDraw = run;
 }
 
-function armReplay(draw) {
-  const button = document.getElementById("replay-draw");
-  if (!button) return;
-  if (!draw || !draw.label) {
-    button.hidden = true;
-    button.onclick = null;
-    return;
-  }
-  button.hidden = false;
-  button.onclick = () => playWinner(draw);
-}
-
 function autoplayDraw(draw) {
-  armReplay(draw);
   if (!draw) return;
   const key = seenKey(draw);
   try {
@@ -211,7 +206,7 @@ function renderPastWinners(history, unavailableMessage) {
   });
   const show = () => {
     const draw = history[Number(select.value)];
-    detail.textContent = draw ? pastWinnerText(draw) : "";
+    detail.textContent = draw ? pastWinnerDetail(draw) : "";
   };
   select.onchange = show;
   show();
@@ -235,24 +230,63 @@ function waitingForResult(data) {
   return Number.isFinite(target) && Date.now() >= target;
 }
 
+function setDigit(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(value).padStart(2, "0");
+}
+
+function paintDrumCountdown(remainMs, mode) {
+  const root = document.getElementById("drum-countdown");
+  const label = document.getElementById("drum-countdown-label");
+  const digits = document.getElementById("drum-countdown-digits");
+  const status = document.getElementById("drum-countdown-status");
+  if (!root || !label || !digits || !status) return;
+  if (mode === "progress") {
+    label.hidden = true;
+    digits.hidden = true;
+    status.hidden = false;
+    status.textContent = "Draw in progress";
+    root.setAttribute("aria-label", "Draw in progress");
+    return;
+  }
+  const total = Math.max(0, Math.floor(Number(remainMs) / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  label.hidden = false;
+  label.textContent = "Next draw in";
+  digits.hidden = false;
+  status.hidden = true;
+  setDigit("cd-days", days);
+  setDigit("cd-hours", hours);
+  setDigit("cd-minutes", minutes);
+  setDigit("cd-seconds", seconds);
+  root.setAttribute(
+    "aria-label",
+    `Next draw in ${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`
+  );
+}
+
 function paintCountdown() {
   const el = document.getElementById("draw-countdown");
-  if (!el || demoMode || !latestState) return;
-  if (latestState.historyAvailable === false) {
-    el.textContent = "";
-    return;
-  }
-  if (waitingForResult(latestState)) {
-    el.textContent = "Drawing now";
-    return;
-  }
+  if (demoMode || !latestState) return;
   const target = Date.parse(latestState.nextDraw || "");
-  if (!Number.isFinite(target)) {
-    el.textContent = "";
-    return;
+  const historyOff = latestState.historyAvailable === false;
+  const waiting = waitingForResult(latestState);
+  if (el) {
+    if (historyOff) el.textContent = "";
+    else if (waiting) el.textContent = "Drawing now";
+    else if (!Number.isFinite(target)) el.textContent = "";
+    else {
+      const remain = target - Date.now();
+      el.textContent = remain <= 0 ? "Drawing now" : formatRemain(remain);
+    }
   }
+  if (!Number.isFinite(target)) return;
   const remain = target - Date.now();
-  el.textContent = remain <= 0 ? "Drawing now" : formatRemain(remain);
+  if (waiting || (!historyOff && remain <= 0)) paintDrumCountdown(0, "progress");
+  else paintDrumCountdown(remain, "count");
 }
 
 function ensureCountdown() {
@@ -301,7 +335,6 @@ function renderState(data) {
     syncDrum(data.entryRefs || []);
     const nightly = currentMonthDraw(data.history);
     if (nightly) autoplayDraw(nightly);
-    else armReplay(data.lastWinner);
   }
   showExampleNotice(demoMode || data.mock === true);
   if (data.mock) {
@@ -351,8 +384,9 @@ function renderAdminHistory(draws, unavailableMessage) {
   }
   for (const draw of draws) {
     const item = document.createElement("li");
-    const who = draw.fullName ? `${draw.fullName}, ${draw.label}` : draw.label;
-    item.textContent = `${who}, ${draw.drawnAtLabel}.`;
+    const who = draw.fullName ? `${draw.fullName}${draw.email ? `, ${draw.email}` : ""}, ${draw.label}` : draw.label;
+    const check = draw.fingerprint ? ` Fairness check: ${draw.fingerprint}.` : "";
+    item.textContent = `${who}, ${draw.drawnAtLabel}.${check}`;
     list.append(item);
   }
 }
@@ -368,13 +402,109 @@ async function loadAdminDraws() {
   renderAdminHistory(data.draws, unavailable);
 }
 
+let communityMembers = [];
+let communityNotice = "";
+
+function communityPlansText(member) {
+  if (member.plansLabel) return member.plansLabel;
+  if (member.plans && member.plans.length) return member.plans.join(", ");
+  return "none";
+}
+
+function filteredCommunity(query) {
+  const needle = String(query || "").trim().toLocaleLowerCase("en-GB");
+  if (!needle) return communityMembers;
+  return communityMembers.filter((member) => {
+    const haystack = [member.name, member.email, communityPlansText(member)].join(" ").toLocaleLowerCase("en-GB");
+    return haystack.includes(needle);
+  });
+}
+
+function renderCommunity(data, options = {}) {
+  const message = document.getElementById("community-message");
+  const count = document.getElementById("community-count");
+  const body = document.getElementById("community-rows");
+  if (!message || !count || !body) return;
+  if (!options.keepMessage) {
+    communityNotice = [data?.message, data?.emailMessage, data?.plansMessage].filter(Boolean).join(" ");
+    message.hidden = communityNotice.length === 0;
+    message.textContent = communityNotice;
+  }
+  const query = document.getElementById("community-search")?.value || "";
+  const shown = filteredCommunity(query);
+  const total = communityMembers.length;
+  count.textContent = query.trim() ? `${shown.length} of ${total} members` : `${total} members`;
+  body.replaceChildren();
+  if (data?.available === false) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = "Community members could not be loaded.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  if (shown.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = total === 0 ? "No site members were found." : "No members match that search.";
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  for (const member of shown) {
+    const row = document.createElement("tr");
+    for (const value of [member.name, member.email, communityPlansText(member)]) {
+      const cell = document.createElement("td");
+      cell.textContent = value || "None";
+      row.append(cell);
+    }
+    body.append(row);
+  }
+}
+
+function clearCommunity() {
+  communityMembers = [];
+  communityNotice = "";
+  const search = document.getElementById("community-search");
+  if (search) search.value = "";
+  renderCommunity({ available: true, members: [] });
+}
+
+async function loadCommunity() {
+  const response = await fetch("/api/community-members", { headers: { Accept: "application/json" } });
+  const data = await readJson(response);
+  if (response.status === 401 || response.status === 503) return;
+  if (!response.ok) {
+    communityMembers = [];
+    renderCommunity({ available: false, message: data.error || "Community members could not be loaded.", members: [] });
+    return;
+  }
+  communityMembers = Array.isArray(data.members) ? data.members : [];
+  renderCommunity(data);
+}
+
+function communityCsv(rows) {
+  const lines = ["Name,Email,Plans"];
+  for (const member of rows) {
+    const cells = [member.name, member.email, communityPlansText(member)].map((value) => {
+      const text = String(value ?? "");
+      if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+      return text;
+    });
+    lines.push(cells.join(","));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 function renderMembers(members) {
   const body = document.getElementById("member-rows");
   body.replaceChildren();
   if (!members || members.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.textContent = "No lottery plan members were found.";
     row.append(cell);
     body.append(row);
@@ -382,7 +512,7 @@ function renderMembers(members) {
   }
   for (const member of members) {
     const row = document.createElement("tr");
-    for (const value of [member.name, member.entryRef, member.status, member.startLabel, member.endLabel]) {
+    for (const value of [member.name, member.email, member.entryRef, member.status, member.startLabel, member.endLabel]) {
       const cell = document.createElement("td");
       cell.textContent = value || "None";
       row.append(cell);
@@ -415,6 +545,7 @@ async function loadMembers() {
   renderMembers(data.members);
   applyHistoryAvailability(data);
   await loadAdminDraws();
+  await loadCommunity();
   if (data.mock) {
     showNotice("mock", "Sample data is on. These are not real members.");
   }
@@ -448,6 +579,49 @@ document.getElementById("lock-button").addEventListener("click", async () => {
   adminForm.hidden = false;
   adminTools.hidden = true;
   drawResult.textContent = "No draw yet this session.";
+  clearCommunity();
+});
+
+document.getElementById("community-search")?.addEventListener("input", () => {
+  renderCommunity({ available: true }, { keepMessage: true });
+});
+
+document.getElementById("community-copy")?.addEventListener("click", async () => {
+  const emails = filteredCommunity(document.getElementById("community-search")?.value || "")
+    .map((member) => String(member.email || "").trim())
+    .filter((email) => email.includes("@"));
+  const message = document.getElementById("community-message");
+  if (emails.length === 0) {
+    if (message) {
+      message.hidden = false;
+      message.textContent = communityNotice ? `No email addresses to copy. ${communityNotice}` : "No email addresses to copy.";
+    }
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(emails.join("\n"));
+    if (message) {
+      const copied = emails.length === 1 ? "Copied 1 email." : `Copied ${emails.length} emails.`;
+      message.hidden = false;
+      message.textContent = communityNotice ? `${copied} ${communityNotice}` : copied;
+    }
+  } catch (error) {
+    console.error(error);
+    if (message) {
+      message.hidden = false;
+      message.textContent = "The email list could not be copied.";
+    }
+  }
+});
+
+document.getElementById("community-csv")?.addEventListener("click", () => {
+  const rows = filteredCommunity(document.getElementById("community-search")?.value || "");
+  const blob = new Blob([communityCsv(rows)], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "community-members.csv";
+  link.click();
+  URL.revokeObjectURL(link.href);
 });
 
 drawButton.addEventListener("click", async () => {
@@ -462,14 +636,14 @@ drawButton.addEventListener("click", async () => {
       return;
     }
     const name = data.winner.fullName || data.winner.label;
+    const email = data.winner.email ? `, ${data.winner.email}` : "";
     const prefix = data.alreadyDrawn ? "This month already has a winner" : "Winner";
-    drawResult.textContent = `${prefix}: ${name}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
+    drawResult.textContent = `${prefix}: ${name}${email}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
     try {
       sessionStorage.setItem(seenKey(data.winner), "1");
     } catch (error) {
       console.error(error);
     }
-    armReplay(data.winner);
     playWinner(data.winner);
     await loadState();
     await loadAdminDraws();
@@ -546,16 +720,17 @@ function startDemoNight(seconds) {
     const remain = target - Date.now();
     if (remain > 0) {
       countdown.textContent = formatRemain(remain);
+      paintDrumCountdown(remain, "count");
       return;
     }
     countdown.textContent = "Drawing now";
+    paintDrumCountdown(0, "progress");
     if (drew) return;
     drew = true;
     window.setTimeout(() => {
       winner.drawnAt = new Date().toISOString();
       document.getElementById("last-winner-name").textContent = winner.label;
       document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
-      armReplay(winner);
       playWinner(winner);
     }, 1200);
   };
@@ -588,6 +763,14 @@ function startDemo() {
   document.getElementById("next-draw").textContent = "1 October 2026, 20:00 UK time";
   const countdown = document.getElementById("draw-countdown");
   if (countdown) countdown.textContent = "";
+  const demoTarget = Date.parse("2026-10-01T19:00:00.000Z");
+  const tickDemoClock = () => {
+    const remain = demoTarget - Date.now();
+    if (remain <= 0) paintDrumCountdown(0, "progress");
+    else paintDrumCountdown(remain, "count");
+  };
+  tickDemoClock();
+  window.setInterval(tickDemoClock, 1000);
   document.getElementById("last-winner-name").textContent = "No winner yet";
   document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
   renderPastWinners([
@@ -626,7 +809,6 @@ function startDemo() {
     };
     document.getElementById("last-winner-name").textContent = draw.label;
     document.getElementById("last-winner-meta").textContent = "Example draw. Not a real result.";
-    armReplay(draw);
     playWinner(draw);
   });
   applyCount();

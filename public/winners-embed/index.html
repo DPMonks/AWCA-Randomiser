@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <meta name="description" content="Past AWCA lottery winners. Initials and entry reference only." />
+  <title>AWCA past winners</title>
+  <meta name="theme-color" content="#1f3b5c" />
+  <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <style>
+    :root {
+      --navy: #1f3b5c;
+      --green: #2b6c3f;
+      --text: #1a1a1a;
+      --sub: #555;
+      --line: #e6ebf2;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      background: transparent;
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+    }
+
+    .card {
+      max-width: 640px;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.35rem 0.75rem;
+      background: var(--navy);
+      color: #fff;
+      padding: 0.7rem 0.95rem;
+    }
+
+    .bar h1,
+    .bar p { margin: 0; }
+
+    .bar h1 {
+      font-size: 1.05rem;
+      line-height: 1.2;
+    }
+
+    .bar p {
+      font-size: 0.8rem;
+      opacity: 0.88;
+    }
+
+    .body { padding: 0.85rem 0.95rem 1rem; }
+
+    .example {
+      margin: 0 0 0.75rem;
+      padding: 0.5rem 0.7rem;
+      border-radius: 8px;
+      background: #e7f0ff;
+      color: #16325c;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    .status {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+
+    details {
+      border-top: 1px solid var(--line);
+      padding: 0.6rem 0;
+    }
+
+    details:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    summary {
+      cursor: pointer;
+      color: var(--navy);
+      font-weight: 600;
+      line-height: 1.35;
+    }
+
+    summary:focus {
+      outline: 2px solid var(--navy);
+      outline-offset: 2px;
+    }
+
+    .winner {
+      margin: 0.45rem 0 0;
+      color: var(--green);
+      font-size: 1.05rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .meta {
+      margin: 0.3rem 0 0;
+      color: var(--sub);
+      font-size: 0.85rem;
+      line-height: 1.4;
+    }
+
+    .fairness p { margin: 0.55rem 0 0; }
+
+    .check-label {
+      display: block;
+      margin-bottom: 0.15rem;
+      color: var(--sub);
+      font-size: 0.75rem;
+    }
+
+    code {
+      display: block;
+      color: var(--navy);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.72rem;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <section class="card" aria-labelledby="title">
+    <header class="bar">
+      <h1 id="title">Past winners</h1>
+      <p>AWCA Lottery</p>
+    </header>
+    <div class="body">
+      <p id="example" class="example" hidden>Example data. Not a real draw.</p>
+      <p id="status" class="status">Loading past winners.</p>
+      <div id="list" hidden></div>
+    </div>
+  </section>
+  <script>
+    const EMPTY_MESSAGE = "No draws yet. The first draw is on 1 October 2026 at 8pm.";
+    const MONTHS = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+
+    const EXAMPLE_WINNERS = [
+      {
+        month: "2026-08",
+        label: "A.B. - Entry 840053",
+        pot: 5,
+        potLabel: "£5.00",
+        entryCount: 4,
+        drawnAt: "2026-08-01T19:00:00.000Z",
+        drawnAtLabel: "1 August 2026, 20:00 UK time",
+        fingerprint: "5f91997293c9ac1ebdb203022f2a38188cd2ff1c2a9dfab6b5daed472c900293",
+        entrantsHash: "a36c38392e58e660800dbb28b924b8dc3039b49fedf380e8493f385f504791f9"
+      },
+      {
+        month: "2026-07",
+        label: "C.D. - Entry 12AB34",
+        pot: 47.5,
+        potLabel: "£47.50",
+        entryCount: 38,
+        drawnAt: "2026-07-01T19:00:00.000Z",
+        drawnAtLabel: "1 July 2026, 20:00 UK time",
+        fingerprint: "39cb9546a617c969f8b86ec36147280617800ce23ab0dcb6df0da1a97f41b557",
+        entrantsHash: "064b43e3d2d59fcbe2c12a5ea9f3080dd577f5b56c500490b5766a37a2970f72"
+      },
+      {
+        month: "2026-06",
+        label: "E.F. - Entry 99FF01",
+        pot: 52.5,
+        potLabel: "£52.50",
+        entryCount: 42,
+        drawnAt: "2026-06-01T19:00:00.000Z",
+        drawnAtLabel: "1 June 2026, 20:00 UK time",
+        fingerprint: "95e400130502eeb6b6ff035d221def71cd1865ee1793f1773c091b189c61bdb1",
+        entrantsHash: "44fb0b7753fdfb4899973cdbaf1c9f2d7ef37394595299e0cac1eb7fe46f50b6"
+      }
+    ];
+
+    const status = document.getElementById("status");
+    const list = document.getElementById("list");
+    const example = document.getElementById("example");
+
+    function monthTitle(month) {
+      const match = /^(\d{4})-(\d{2})$/.exec(month || "");
+      if (!match) return "Past draw";
+      return `${MONTHS[Number(match[2]) - 1]} ${match[1]}`;
+    }
+
+    function money(amount, label) {
+      if (label) return label;
+      const number = Number(amount);
+      if (!Number.isFinite(number)) return "Unavailable";
+      return `£${number.toFixed(2)}`;
+    }
+
+    function showStatus(text) {
+      list.hidden = true;
+      list.replaceChildren();
+      status.hidden = false;
+      status.textContent = text;
+    }
+
+    function checkLine(label, value) {
+      const row = document.createElement("p");
+      const name = document.createElement("span");
+      name.className = "check-label";
+      name.textContent = label;
+      const code = document.createElement("code");
+      code.textContent = value;
+      row.append(name, code);
+      return row;
+    }
+
+    function drawBody(draw) {
+      const body = document.createElement("div");
+      body.className = "draw";
+      const winner = document.createElement("p");
+      winner.className = "winner";
+      winner.textContent = draw.label || "Winner";
+      const meta = document.createElement("p");
+      meta.className = "meta";
+      const count = Number(draw.entryCount) || 0;
+      const when = draw.drawnAtLabel || "";
+      const line = `${count} ${count === 1 ? "entry" : "entries"}, pot ${money(draw.pot, draw.potLabel)}.`;
+      meta.textContent = when ? `${line} Drawn ${when}.` : line;
+      const fairness = document.createElement("div");
+      fairness.className = "fairness";
+      if (draw.fingerprint) fairness.append(checkLine("Fairness check", draw.fingerprint));
+      if (draw.entrantsHash) fairness.append(checkLine("Entrants check", draw.entrantsHash));
+      body.append(winner, meta);
+      if (fairness.childElementCount) body.append(fairness);
+      return body;
+    }
+
+    function showList(winners) {
+      status.hidden = true;
+      list.hidden = false;
+      list.replaceChildren();
+      winners.forEach((draw, index) => {
+        const item = document.createElement("details");
+        if (index === 0) item.open = true;
+        const summary = document.createElement("summary");
+        summary.textContent = `${monthTitle(draw.month)}: ${draw.label}`;
+        item.append(summary, drawBody(draw));
+        list.append(item);
+      });
+    }
+
+    function render(data) {
+      example.hidden = data.example !== true;
+      const winners = Array.isArray(data.winners) ? data.winners : [];
+      if (data.historyAvailable === false) {
+        showStatus(data.message || "Draw history is unavailable right now.");
+        return;
+      }
+      if (winners.length === 0) {
+        showStatus(EMPTY_MESSAGE);
+        return;
+      }
+      showList(winners);
+    }
+
+    async function loadWinners() {
+      try {
+        const response = await fetch("/api/winners", { headers: { Accept: "application/json" } });
+        let data = {};
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
+        }
+        if (!response.ok) {
+          showStatus("Past winners could not be loaded. Please try again.");
+          return;
+        }
+        render(data);
+      } catch (error) {
+        console.error(error);
+        showStatus("Past winners could not be loaded. Please try again.");
+      }
+    }
+
+    const params = new URLSearchParams(location.search);
+    if (params.get("example") === "1") {
+      render({ historyAvailable: true, example: true, winners: EXAMPLE_WINNERS });
+    } else {
+      loadWinners();
+    }
+  </script>
+</body>
+</html>
