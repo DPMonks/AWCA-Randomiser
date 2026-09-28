@@ -29,6 +29,7 @@ Give the key these permissions:
 - Read Orders, `SCOPE.DC-PAIDPLANS.READ-ORDERS`
 - Read Pricing Plans, `SCOPE.DC-PAIDPLANS.READ-PLANS`
 - Read Members, `SCOPE.DC-MEMBERS.READ-MEMBERS`
+- Read Contacts, `SCOPE.DC-CONTACTS.READ-CONTACTS`
 - Read Data Items, `SCOPE.DC-DATA.READ`
 - Write Data Items, `SCOPE.DC-DATA.WRITE`
 - Manage Data Collections, `SCOPE.DC-DATA.DATA-COLLECTIONS-MANAGE`
@@ -37,7 +38,8 @@ The page calls these REST endpoints:
 
 - `POST https://www.wixapis.com/pricing-plans/v3/plans/query` to find the plan
 - `GET https://www.wixapis.com/pricing-plans/v2/orders` to list subscribers, including cancelled and ended orders
-- `POST https://www.wixapis.com/members/v1/members/query` with the `FULL` fieldset to read member names
+- `POST https://www.wixapis.com/members/v1/members/query` with the `FULL` fieldset to read member names and login emails
+- `POST https://www.wixapis.com/contacts/v4/contacts/query` with the `COMMUNICATION_DETAILS` fieldset to read a contact's primary email when the member login email is empty
 - `POST https://www.wixapis.com/wix-data/v2/items/query` and `POST https://www.wixapis.com/wix-data/v2/items` to read and save draws
 - `GET https://www.wixapis.com/wix-data/v2/collections/LotteryDraws` and `POST https://www.wixapis.com/wix-data/v2/collections/create-field` to add fingerprint fields when the collection already exists
 
@@ -56,6 +58,8 @@ An active order can also have auto-renew cancelled, with `cancellation.effective
 ## Public winners and entry references
 
 The public page, the public draw history, and `GET /api/state` never include a winner's full name or email. A winner is shown as initials plus an entry reference, for example `D.M. - Entry 4F7A2C`.
+
+The admin member list, the official draw record, and Draw Winner show each subscriber's email next to their name. The address is the member login email from the Members API. If that is empty, it is the contact's primary email. Those addresses are loaded live and are not written into the draw collection. If the API key cannot read them, the admin view shows `Email unavailable`. Login emails need Read Members. Contact emails need Read Contacts, `SCOPE.DC-CONTACTS.READ-CONTACTS`.
 
 Initials come from the first and last name. `Daniel Monks` becomes `D.M.` A single name uses that name's initial. Hyphenated parts each contribute an initial, so `Mary-Jane Watson` becomes `M.J.W.` If no name is available, the public label is the entry reference only.
 

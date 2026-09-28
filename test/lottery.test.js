@@ -5,13 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import cronDraw from "../api/cron/draw.js";
+import stateApi from "../api/state.js";
 import winnersApi from "../api/winners.js";
 import { issueToken, passwordMatches, requireCron, verifyToken } from "../lib/auth.js";
 import { pickWinner } from "../lib/draw.js";
-import { activeEntrants, buildMembers, isPendingCancellation } from "../lib/entrants.js";
+import { EMAIL_UNAVAILABLE, activeEntrants, buildMembers, isPendingCancellation, subscriberEmail } from "../lib/entrants.js";
 import { drawFingerprint, hashEntrantRefs, sortedEntryRefs } from "../lib/fairness.js";
 import { DRAW_CATCHUP_MS, formatUkDate, isDrawDue, isWithinDrawWindow, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
 import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, getPublicWinners, runDraw } from "../lib/lottery.js";
+import { MOCK_KNOWN_EMAILS } from "../lib/mock.js";
 import { CMS_NOT_INSTALLED_MESSAGE, HISTORY_UNAVAILABLE_MESSAGE, historyUnavailableMessage } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
 import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
@@ -156,6 +158,38 @@ test("members collapse to one row and only active rows are drawn", () => {
   assert.deepEqual(entrants.map((member) => member.memberId), ["ada"]);
   assert.equal(pickWinner(entrants, () => 0).name, "Ada Example");
   assert.equal(pickWinner([], () => 0), null);
+});
+
+test("subscriber email prefers the login address, then the contact primary address", () => {
+  assert.equal(
+    subscriberEmail({
+      loginEmail: "login.person@example.com",
+      contact: { emails: ["other.person@example.com"] },
+    }),
+    "login.person@example.com"
+  );
+  assert.equal(
+    subscriberEmail({
+      contact: {
+        emails: [
+          { email: "not.primary@example.com", primary: false },
+          { email: "old.primary@example.com", primary: true },
+        ],
+      },
+    }),
+    "old.primary@example.com"
+  );
+  assert.equal(
+    subscriberEmail({
+      primaryInfo: { email: "ada.contact@example.com" },
+      info: { emails: { items: [{ email: "ada.other@example.com", primary: false }] } },
+    }),
+    "ada.contact@example.com"
+  );
+  assert.equal(subscriberEmail({ contact: { emails: ["first.only@example.com"] } }), "first.only@example.com");
+  assert.equal(subscriberEmail({ loginEmail: "not-an-email" }), "");
+  assert.equal(subscriberEmail(null), "");
+  assert.equal(EMAIL_UNAVAILABLE, "Email unavailable");
 });
 
 function pendingCancelOrder(memberId, effectiveAt, extra = {}) {
@@ -399,7 +433,9 @@ test("mock mode serves sample members without Wix credentials", async () => {
     assert.equal("name" in drawn.winner, false);
     assert.equal(drawn.record.initials, initialsFromName(drawn.winner.fullName));
     assert.equal("winnerName" in drawn.record, false);
+    assert.equal(drawn.winner.email, MOCK_KNOWN_EMAILS[drawn.record.memberId]);
     assert.equal(JSON.stringify(drawn.record).includes(drawn.winner.fullName), false);
+    assert.equal(JSON.stringify(drawn.record).includes("@"), false);
 
     const again = await getPublicState([], drawAt);
     assert.equal(again.drawDue, false);
@@ -414,14 +450,23 @@ test("mock mode serves sample members without Wix credentials", async () => {
 
     const members = await getMemberList();
     assert.equal(members.members[0].name, "Sample Member Ada");
+    assert.equal(members.members[0].email, "ada.sample@example.com");
     assert.equal(members.members[0].entryRef, entryReference("mock-ada"));
     assert.equal("memberId" in members.members[0], false);
 
     const adminDraws = await getAdminDraws();
     assert.equal(adminDraws.draws.some((draw) => draw.fullName === "Sample Winner Sam"), true);
     assert.equal(
+      adminDraws.draws.find((draw) => draw.fullName === "Sample Winner Sam")?.email,
+      "sam.sample@example.com"
+    );
+    assert.equal(
       adminDraws.draws.find((draw) => draw.fullName === drawn.winner.fullName)?.label,
       drawn.winner.label
+    );
+    assert.equal(
+      adminDraws.draws.find((draw) => draw.fullName === drawn.winner.fullName)?.email,
+      drawn.winner.email
     );
 
     const fromCookie = await getPublicState(
@@ -1059,6 +1104,188 @@ test("history messages name CMS only for WDE0110", () => {
   assert.equal(/Wix CMS|Wix Editor|Add CMS/i.test(other), false);
 });
 
+function assertNoEmail(value, label) {
+  const json = JSON.stringify(value);
+  assert.equal(json.includes("@"), false, `${label} contains an email address`);
+  assert.equal(json.includes("email"), false, `${label} contains an email field`);
+  assert.equal(json.includes(EMAIL_UNAVAILABLE), false, `${label} contains the admin email fallback`);
+  assert.equal(json.includes("login.person@example.com"), false);
+  assert.equal(json.includes("ada.contact@example.com"), false);
+  assert.equal(json.includes("old.primary@example.com"), false);
+  assert.equal(json.includes("stored-secret@example.com"), false);
+}
+
+test("public endpoints never contain an email, and admin views do", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.WIX_LOTTERY_PLAN_ID = "plan-1";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  process.env.ADMIN_PASSWORD = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  let contactsForbidden = false;
+  const contactCalls = [];
+  const members = {
+    "member-login": {
+      id: "member-login",
+      loginEmail: "login.person@example.com",
+      contactId: "c-login",
+      contact: { firstName: "Login", lastName: "Person", emails: ["other.person@example.com"] },
+    },
+    "member-contact": {
+      id: "member-contact",
+      contactId: "c-contact",
+      contact: { firstName: "Ada", lastName: "Contact", emails: [] },
+    },
+    "member-old": {
+      id: "member-old",
+      contactId: "c-old",
+      contact: {
+        firstName: "Old",
+        lastName: "Winner",
+        emails: [
+          { email: "not.primary@example.com", primary: false },
+          { email: "old.primary@example.com", primary: true },
+        ],
+      },
+    },
+  };
+
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/pricing-plans/v3/plans/query")) {
+      return json({
+        plans: [
+          {
+            id: "plan-1",
+            name: "Community Lottery",
+            currency: "GBP",
+            pricingVariants: [{ pricingStrategies: [{ flatRate: { amount: "2.50" } }] }],
+          },
+        ],
+      });
+    }
+    if (path.includes("/pricing-plans/v2/orders")) {
+      return json({
+        orders: [
+          {
+            status: "ACTIVE",
+            buyer: { memberId: "member-login" },
+            startDate: "2026-01-05T10:00:00.000Z",
+            updatedDate: "2026-01-05T10:00:00.000Z",
+          },
+          {
+            status: "ACTIVE",
+            buyer: { memberId: "member-contact" },
+            startDate: "2026-02-05T10:00:00.000Z",
+            updatedDate: "2026-02-05T10:00:00.000Z",
+          },
+        ],
+        pagingMetadata: { total: 2, hasNext: false },
+      });
+    }
+    if (path.includes("/members/v1/members/query")) {
+      const body = JSON.parse(options.body);
+      assert.deepEqual(body.fieldsets, ["FULL"]);
+      const ids = body.query.filter.id.$in;
+      return json({ members: ids.map((id) => members[id]).filter(Boolean) });
+    }
+    if (path.includes("/contacts/v4/contacts/query")) {
+      contactCalls.push(JSON.parse(options.body));
+      if (contactsForbidden) {
+        return json({ message: "Forbidden" }, 403);
+      }
+      const ids = JSON.parse(options.body).query.filter.id.$in;
+      assert.deepEqual(ids, ["c-contact"]);
+      return json({
+        contacts: [
+          {
+            id: "c-contact",
+            primaryInfo: { email: "ada.contact@example.com" },
+            info: {
+              emails: {
+                items: [
+                  { email: "ada.other@example.com", primary: false },
+                  { email: "ada.contact@example.com", primary: true },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+    if (path.includes("/wix-data/v2/items/query")) {
+      return json({
+        dataItems: [
+          {
+            id: "2026-08",
+            data: {
+              memberId: "member-old",
+              initials: "O.W.",
+              entryRef: "ABC123",
+              month: "2026-08",
+              drawnAt: "2026-08-01T19:00:00.000Z",
+              entryCount: 2,
+              potAmount: 2.5,
+              email: "stored-secret@example.com",
+              winnerName: "Old Winner",
+              fullName: "Old Winner",
+            },
+          },
+        ],
+      });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+
+  const now = new Date("2026-09-28T12:00:00.000Z");
+  try {
+    const state = await getPublicState([], now);
+    const winners = await getPublicWinners();
+    const stateRes = fakeRes();
+    await stateApi({ method: "GET", headers: {} }, stateRes);
+    const winnersRes = fakeRes();
+    await winnersApi({ method: "GET", headers: {} }, winnersRes);
+    assertNoEmail(state, "getPublicState");
+    assertNoEmail(winners, "getPublicWinners");
+    assertNoEmail(stateRes.body, "/api/state");
+    assertNoEmail(winnersRes.body, "/api/winners");
+    assert.equal(state.lastWinner.label, "O.W. - Entry ABC123");
+    assert.equal(winners.winners[0].label, "O.W. - Entry ABC123");
+    assert.equal(contactCalls.length > 0, true);
+
+    const list = await getMemberList();
+    const ada = list.members.find((member) => member.name === "Ada Contact");
+    const login = list.members.find((member) => member.name === "Login Person");
+    assert.equal(ada.email, "ada.contact@example.com");
+    assert.equal(login.email, "login.person@example.com");
+    assert.equal("memberId" in ada, false);
+
+    const adminDraws = await getAdminDraws();
+    assert.equal(adminDraws.draws[0].fullName, "Old Winner");
+    assert.equal(adminDraws.draws[0].email, "old.primary@example.com");
+    assert.equal(JSON.stringify(adminDraws).includes("stored-secret@example.com"), false);
+
+    contactsForbidden = true;
+    const blocked = await getMemberList();
+    assert.equal(blocked.members.find((member) => member.name === "Ada Contact").email, EMAIL_UNAVAILABLE);
+    assert.equal(blocked.members.find((member) => member.name === "Login Person").email, "login.person@example.com");
+    const stillPublic = await getPublicState([], now);
+    assertNoEmail(stillPublic, "getPublicState after contacts forbidden");
+    const stillWinners = fakeRes();
+    await winnersApi({ method: "GET", headers: {} }, stillWinners);
+    assertNoEmail(stillWinners.body, "/api/winners after contacts forbidden");
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
 test("public winners omit names and member ids", async () => {
   const dir = await mkdtemp(join(tmpdir(), "awca-"));
   process.env.WIX_MOCK = "1";
@@ -1228,6 +1455,8 @@ test("a saved draw keeps the month as the item id and stores the fingerprint", a
       fingerprint,
       entrantsHash,
       winnerIndex: 0,
+      email: "daniel@example.com",
+      fullName: "Daniel Monks",
     });
     assert.equal(createdFields, 3);
     assert.equal(posted.dataItem.id, "2026-10");
@@ -1236,6 +1465,10 @@ test("a saved draw keeps the month as the item id and stores the fingerprint", a
     assert.equal(posted.dataItem.data.winnerIndex, 0);
     assert.equal(posted.dataItem.data.memberId, "member-1");
     assert.equal("winnerName" in posted.dataItem.data, false);
+    assert.equal("email" in posted.dataItem.data, false);
+    assert.equal("fullName" in posted.dataItem.data, false);
+    assert.equal(JSON.stringify(posted.dataItem.data).includes("@"), false);
+    assert.equal(JSON.stringify(result.record).includes("@"), false);
     assert.equal(result.created, true);
     assert.equal(result.record.fingerprint, fingerprint);
     assert.equal(result.record.winnerIndex, 0);

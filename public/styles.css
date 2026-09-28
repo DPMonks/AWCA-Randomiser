@@ -193,6 +193,7 @@ body {
   text-align: left;
   padding: 0.65rem 0.5rem;
   border-bottom: 1px solid #e6ebf2;
+  overflow-wrap: anywhere;
 }
 
 .awca-table th {

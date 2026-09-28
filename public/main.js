@@ -398,7 +398,7 @@ function renderAdminHistory(draws, unavailableMessage) {
   }
   for (const draw of draws) {
     const item = document.createElement("li");
-    const who = draw.fullName ? `${draw.fullName}, ${draw.label}` : draw.label;
+    const who = draw.fullName ? `${draw.fullName}${draw.email ? `, ${draw.email}` : ""}, ${draw.label}` : draw.label;
     const check = draw.fingerprint ? ` Fairness check: ${draw.fingerprint}.` : "";
     item.textContent = `${who}, ${draw.drawnAtLabel}.${check}`;
     list.append(item);
@@ -422,7 +422,7 @@ function renderMembers(members) {
   if (!members || members.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.textContent = "No lottery plan members were found.";
     row.append(cell);
     body.append(row);
@@ -430,7 +430,7 @@ function renderMembers(members) {
   }
   for (const member of members) {
     const row = document.createElement("tr");
-    for (const value of [member.name, member.entryRef, member.status, member.startLabel, member.endLabel]) {
+    for (const value of [member.name, member.email, member.entryRef, member.status, member.startLabel, member.endLabel]) {
       const cell = document.createElement("td");
       cell.textContent = value || "None";
       row.append(cell);
@@ -510,8 +510,9 @@ drawButton.addEventListener("click", async () => {
       return;
     }
     const name = data.winner.fullName || data.winner.label;
+    const email = data.winner.email ? `, ${data.winner.email}` : "";
     const prefix = data.alreadyDrawn ? "This month already has a winner" : "Winner";
-    drawResult.textContent = `${prefix}: ${name}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
+    drawResult.textContent = `${prefix}: ${name}${email}. Public result: ${data.winner.label}. Drawn ${data.winner.drawnAtLabel}.`;
     try {
       sessionStorage.setItem(seenKey(data.winner), "1");
     } catch (error) {
