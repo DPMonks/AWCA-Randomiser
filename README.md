@@ -39,6 +39,7 @@ The page calls these REST endpoints:
 - `GET https://www.wixapis.com/pricing-plans/v2/orders` to list subscribers, including cancelled and ended orders
 - `POST https://www.wixapis.com/members/v1/members/query` with the `FULL` fieldset to read member names
 - `POST https://www.wixapis.com/wix-data/v2/items/query` and `POST https://www.wixapis.com/wix-data/v2/items` to read and save draws
+- `GET https://www.wixapis.com/wix-data/v2/collections/LotteryDraws` and `POST https://www.wixapis.com/wix-data/v2/collections/create-field` to add fingerprint fields when the collection already exists
 
 Headers on every call: `Authorization` set to the API key (not a Bearer token), and `wix-site-id` set to `WIX_SITE_ID`.
 
@@ -64,9 +65,31 @@ The admin member list shows the full name beside the entry reference. The admin 
 
 ## Draw history
 
-Past draws are stored in a Wix CMS collection named `LotteryDraws`. Each row stores the member id, initials, entry reference, month, entry count, pot, and the time of the draw. The winner's full name is not stored. The server creates that collection on first use. Read, insert, update, and remove are all limited to site admins. If an older `LotteryDraws` collection already exists from a previous version of this page, delete it in the Wix CMS so the server can recreate it without a name field.
+Past draws are stored in a Wix CMS collection named `LotteryDraws`. Each row stores the member id, initials, entry reference, month, entry count, pot, the time of the draw, a fairness fingerprint, a hash of the sorted entry references, and the winner index in that sorted list. The winner's full name is not stored. The item id is the London month, for example `2026-10`, so each month can be saved only once. The server creates the collection on first use and adds any missing fingerprint fields to an existing collection. Read, insert, update, and remove are all limited to site admins. If an older `LotteryDraws` collection already exists from a previous version of this page, delete it in the Wix CMS so the server can recreate it without a name field.
 
-If Wix CMS is not added to the site, or the collection cannot be read, the page still shows the live entry count, prize pot, and next draw. Last winner and past draws stay empty, and the response includes `historyAvailable: false`. The automatic draw and Draw Winner both refuse until CMS is added, so a winner is not chosen when it cannot be saved. The server logs that skip. Add CMS in the Wix Editor and save. Publishing is not required. Then reload the page. The server creates `LotteryDraws` on the next successful draw.
+If a draw cannot be saved, the page still shows the live entry count, prize pot, and next draw. Last winner and past draws stay empty, and the response includes `historyAvailable: false`. The automatic draw and Draw Winner both refuse, so a winner is not chosen when it cannot be saved. The server logs that skip.
+
+Wix error WDE0110 means the CMS app is not installed. The message in that case says so. Any other storage problem uses a shorter neutral message. Neither message tells visitors how to change the site. This site uses the Harmony editor, which has no Velo and no datasets. CMS is installed separately. On the live site it is already installed.
+
+## Fairness fingerprint
+
+When a draw is saved, the server stores two SHA-256 hex digests. The entrants hash is the hash of the sorted entry references, one reference per line. The fairness fingerprint is the hash of these lines, in order: month, drawn-at time in UTC, winner index, then the same sorted entry references. The winner index counts from 0 in that sorted list. Sorting the references first means the order the members were loaded does not change the fingerprint.
+
+`GET /api/state` and `GET /api/winners` include the fingerprint and the entrants hash when the saved draw has them. Older draws saved before this check stay on the list without a fingerprint. The public responses still use initials and the entry reference only.
+
+## Past winners on the community site
+
+The Wix page can show past winners under the subscriptions or pricing plans section. In the Harmony editor choose Add, then Elements, then Embed, then Embed a site, and paste:
+
+https://lottery.alconbury-weald.org/winners-embed
+
+Use a width of about 600 pixels and a height of about 320 pixels. The card fits from about 120 pixels tall, when there are no draws yet, to about 400 pixels once a winner and the fairness check are on screen. On a phone the card uses the full iframe width.
+
+Only that embed page can be placed in a frame, and only by `https://www.alconbury-weald.org`, `https://alconbury-weald.org`, `https://*.wix.com`, `https://*.wixsite.com`, `https://*.filesusr.com`, and `https://*.wixstatic.com`. The lottery page itself, including the admin sign-in, sends `frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+
+`GET /api/winners` is public. A successful response is cached at the CDN for 5 minutes (`s-maxage=300`). It returns the month, the public label, the pot, the entry count, the drawn-at time, and the fairness fingerprint when one was stored. It does not return full names, member ids, or emails.
+
+Open `/winners-embed?example=1` to preview three fake winners. That preview shows a banner: "Example data. Not a real draw."
 
 ## Automatic draw
 

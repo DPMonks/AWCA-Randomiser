@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
-import { mkdtemp, readFile, readdir, stat } from "node:fs/promises";
+import { createHash, createHmac } from "node:crypto";
+import { mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import cronDraw from "../api/cron/draw.js";
+import winnersApi from "../api/winners.js";
 import { issueToken, passwordMatches, requireCron, verifyToken } from "../lib/auth.js";
 import { pickWinner } from "../lib/draw.js";
 import { activeEntrants, buildMembers } from "../lib/entrants.js";
+import { drawFingerprint, hashEntrantRefs, sortedEntryRefs } from "../lib/fairness.js";
 import { formatUkDate, isDrawDue, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
-import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, runDraw } from "../lib/lottery.js";
-import { HISTORY_UNAVAILABLE_MESSAGE } from "../lib/store.js";
+import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, getPublicWinners, runDraw } from "../lib/lottery.js";
+import { CMS_NOT_INSTALLED_MESSAGE, HISTORY_UNAVAILABLE_MESSAGE, historyUnavailableMessage } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
 import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
 import { drawCollectionSpec, insertDrawIfAbsent, toDrawRecord } from "../lib/wix.js";
@@ -253,7 +255,7 @@ test("draw storage keeps initials and an entry reference, not the full name", ()
     assert.equal(spec.fields.some((field) => field.key === "winnerName"), false);
     assert.deepEqual(
       spec.fields.map((field) => field.key),
-      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount"]
+      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount", "fingerprint", "entrantsHash", "winnerIndex"]
     );
   } finally {
     restoreEnv();
@@ -407,7 +409,8 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
   try {
     const state = await getPublicState();
     assert.equal(state.historyAvailable, false);
-    assert.equal(state.historyMessage, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(state.historyMessage, CMS_NOT_INSTALLED_MESSAGE);
+    assert.equal(/Wix Editor|Add CMS/i.test(state.historyMessage), false);
     assert.equal(state.lastWinner, null);
     assert.deepEqual(state.history, []);
     assert.equal(state.activeEntries, 1);
@@ -430,7 +433,13 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
     assert.equal(adminDraws.historyAvailable, false);
     assert.deepEqual(adminDraws.draws, []);
 
-    const cmsMessage = new RegExp(HISTORY_UNAVAILABLE_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const winners = await getPublicWinners();
+    assert.equal(winners.historyAvailable, false);
+    assert.equal(winners.message, CMS_NOT_INSTALLED_MESSAGE);
+    assert.deepEqual(winners.winners, []);
+    assert.equal(JSON.stringify(winners).includes("Daniel"), false);
+
+    const cmsMessage = new RegExp(CMS_NOT_INSTALLED_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     await assert.rejects(runDraw(), cmsMessage);
     await assert.rejects(
       ensureMonthlyDraw({ now: new Date("2026-10-01T19:00:00.000Z"), force: false }),
@@ -465,7 +474,10 @@ function fakeRes() {
       this.statusCode = code;
       return this;
     },
-    setHeader() {},
+    headers: {},
+    setHeader(name, value) {
+      this.headers[String(name).toLowerCase()] = value;
+    },
     send(payload) {
       this.body = JSON.parse(payload);
     },
@@ -498,11 +510,27 @@ test("one draw is saved per month even when requests race", async () => {
     assert.equal(first.record.entryCount, 4);
     assert.equal(first.record.potAmount, 5);
     assert.equal(first.record.month, "2026-10");
+    const refs = ["mock-ada", "mock-ben", "mock-cleo", "mock-drew"].map((id) => entryReference(id));
+    assert.equal(first.record.winnerIndex, sortedEntryRefs(refs).indexOf(first.record.entryRef));
+    assert.equal(
+      first.record.fingerprint,
+      drawFingerprint({
+        month: "2026-10",
+        drawnAt: first.record.drawnAt,
+        entryRefs: refs,
+        winnerIndex: first.record.winnerIndex,
+      })
+    );
+    assert.equal(first.record.entrantsHash, hashEntrantRefs(refs));
+    assert.equal(second.record.fingerprint, first.record.fingerprint);
 
     const after = await getPublicState([], summer);
     assert.equal(after.drawDue, false);
     assert.equal(after.lastWinner.entryRef, first.record.entryRef);
+    assert.equal(after.lastWinner.fingerprint, first.record.fingerprint);
+    assert.equal(after.history[0].entrantsHash, first.record.entrantsHash);
     assert.equal(JSON.stringify(after).includes("Sample Member"), false);
+    assert.equal(JSON.stringify(after).includes("memberId"), false);
 
     const winter = new Date("2026-12-01T20:00:00.000Z");
     const raced = await Promise.all([
@@ -551,6 +579,13 @@ test("a conflicting insert keeps the winner already saved", async () => {
         status,
         headers: { "Content-Type": "application/json" },
       });
+    if (path.includes("/wix-data/v2/collections/") && !path.includes("/items")) {
+      return json({
+        collection: {
+          fields: [{ key: "fingerprint" }, { key: "entrantsHash" }, { key: "winnerIndex" }],
+        },
+      });
+    }
     if (path.includes("/wix-data/v2/items/2026-10")) {
       return json({ dataItem: saved });
     }
@@ -720,6 +755,273 @@ test("demo countdown rehearses draw night without calling the server", async () 
   const night = source.slice(source.indexOf("function startDemoNight"), source.indexOf("function startDemo("));
   assert.equal(night.includes("fetch("), false);
   assert.match(night, /demoNightRefs\(40\)/);
+});
+
+test("draw fingerprint is a stable hash of the sorted draw inputs", () => {
+  const drawnAt = "2026-10-01T19:00:00.000Z";
+  const first = drawFingerprint({
+    month: "2026-10",
+    drawnAt,
+    entryRefs: ["BBBBBB", "AAAAAA", "CCCCCC"],
+    winnerIndex: 1,
+  });
+  const second = drawFingerprint({
+    month: "2026-10",
+    drawnAt,
+    entryRefs: ["CCCCCC", "AAAAAA", "BBBBBB"],
+    winnerIndex: 1,
+  });
+  const expected = createHash("sha256")
+    .update(["2026-10", drawnAt, "1", "AAAAAA", "BBBBBB", "CCCCCC"].join("\n"))
+    .digest("hex");
+  assert.equal(first, second);
+  assert.equal(first, expected);
+  assert.equal(first.length, 64);
+  assert.notEqual(
+    drawFingerprint({
+      month: "2026-10",
+      drawnAt,
+      entryRefs: ["AAAAAA", "BBBBBB", "CCCCCC"],
+      winnerIndex: 0,
+    }),
+    first
+  );
+  const entrants = hashEntrantRefs(["CCCCCC", "AAAAAA", "BBBBBB"]);
+  assert.equal(
+    entrants,
+    createHash("sha256").update(["AAAAAA", "BBBBBB", "CCCCCC"].join("\n")).digest("hex")
+  );
+  assert.notEqual(entrants, first);
+});
+
+test("history messages name CMS only for WDE0110", () => {
+  assert.equal(
+    historyUnavailableMessage({ message: "WDE0110: Wix CMS app is not installed for site." }),
+    CMS_NOT_INSTALLED_MESSAGE
+  );
+  assert.equal(/Wix Editor|Add CMS/i.test(CMS_NOT_INSTALLED_MESSAGE), false);
+  const other = historyUnavailableMessage({ message: "Wix returned an error: storage timeout", code: "WIX_ERROR" });
+  assert.equal(other, HISTORY_UNAVAILABLE_MESSAGE);
+  assert.equal(/Wix CMS|Wix Editor|Add CMS/i.test(other), false);
+});
+
+test("public winners omit names and member ids", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "awca-"));
+  process.env.WIX_MOCK = "1";
+  process.env.MOCK_DRAW_FILE = join(dir, "draws.json");
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  delete process.env.ADMIN_PASSWORD;
+  const fingerprint = "ab".repeat(32);
+  const entrantsHash = "cd".repeat(32);
+  await writeFile(
+    process.env.MOCK_DRAW_FILE,
+    JSON.stringify({
+      extra: [
+        {
+          memberId: "member-1",
+          winnerName: "Daniel Monks",
+          fullName: "Daniel Monks",
+          email: "daniel@example.com",
+          initials: "D.M.",
+          entryRef: "4F7A2C",
+          month: "2026-09",
+          drawnAt: "2026-09-01T19:00:00.000Z",
+          entryCount: 8,
+          potAmount: 10,
+          fingerprint,
+          entrantsHash,
+          winnerIndex: 3,
+        },
+      ],
+    }),
+    "utf8"
+  );
+  try {
+    const denied = fakeRes();
+    await winnersApi({ method: "POST" }, denied);
+    assert.equal(denied.statusCode, 405);
+
+    const res = fakeRes();
+    await winnersApi({ method: "GET" }, res);
+    assert.equal(res.statusCode, 200);
+    assert.match(res.headers["cache-control"], /s-maxage=300/);
+    assert.equal(res.body.historyAvailable, true);
+    assert.equal("message" in res.body, false);
+    const winner = res.body.winners.find((draw) => draw.month === "2026-09");
+    assert.equal(winner.label, "D.M. - Entry 4F7A2C");
+    assert.equal(winner.pot, 10);
+    assert.equal(winner.entryCount, 8);
+    assert.equal(winner.drawnAt, "2026-09-01T19:00:00.000Z");
+    assert.equal(winner.fingerprint, fingerprint);
+    assert.equal(winner.entrantsHash, entrantsHash);
+    const allowed = new Set([
+      "month",
+      "label",
+      "pot",
+      "potLabel",
+      "entryCount",
+      "drawnAt",
+      "drawnAtLabel",
+      "fingerprint",
+      "entrantsHash",
+    ]);
+    for (const draw of res.body.winners) {
+      for (const key of Object.keys(draw)) {
+        assert.equal(allowed.has(key), true, key);
+      }
+      assert.match(draw.label, /^(?:[A-Z](?:\.[A-Z])*\. - )?Entry [0-9A-F]{6}$|^[A-Z](?:\.[A-Z])*\. - Entry [0-9A-F]{6}$/);
+    }
+    const json = JSON.stringify(res.body);
+    assert.equal(json.includes("Daniel Monks"), false);
+    assert.equal(json.includes("member-1"), false);
+    assert.equal(json.includes("mock-sam"), false);
+    assert.equal(json.includes("daniel@example.com"), false);
+    assert.equal(json.includes("memberId"), false);
+    assert.equal(json.includes("winnerName"), false);
+    assert.equal(json.includes("fullName"), false);
+    assert.equal(json.includes("email"), false);
+    assert.equal(json.includes("@"), false);
+    assert.equal(json.includes("Sample"), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("other storage errors stay neutral and are not cached as winners", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: "storage timeout" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  try {
+    const body = await getPublicWinners();
+    assert.equal(body.historyAvailable, false);
+    assert.equal(body.message, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(/Wix CMS|Wix Editor|Add CMS|WIX_API_KEY/i.test(body.message), false);
+    assert.deepEqual(body.winners, []);
+
+    const res = fakeRes();
+    await winnersApi({ method: "GET" }, res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers["cache-control"], "no-store");
+    assert.equal(res.body.message, HISTORY_UNAVAILABLE_MESSAGE);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("public winners do not explain how to configure Wix", async () => {
+  delete process.env.WIX_MOCK;
+  delete process.env.WIX_API_KEY;
+  delete process.env.WIX_SITE_ID;
+  try {
+    const body = await getPublicWinners();
+    assert.equal(body.historyAvailable, false);
+    assert.equal(body.message, HISTORY_UNAVAILABLE_MESSAGE);
+    assert.equal(JSON.stringify(body).includes("WIX_API_KEY"), false);
+    assert.equal(/Wix Editor|Add CMS/i.test(body.message), false);
+  } finally {
+    restoreEnv();
+  }
+});
+
+test("a saved draw keeps the month as the item id and stores the fingerprint", async () => {
+  delete process.env.WIX_MOCK;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const fingerprint = "ab".repeat(32);
+  const entrantsHash = "cd".repeat(32);
+  let posted = null;
+  let createdFields = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/collections/create-field")) {
+      createdFields += 1;
+      const body = JSON.parse(options.body);
+      assert.equal(body.dataCollectionId, "LotteryDraws");
+      return json({});
+    }
+    if (path.includes("/wix-data/v2/collections/")) {
+      return json({ collection: { fields: [] } });
+    }
+    if (path.endsWith("/wix-data/v2/items") && options.method === "POST") {
+      posted = JSON.parse(options.body);
+      return json({ dataItem: posted.dataItem });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+  try {
+    const result = await insertDrawIfAbsent({
+      memberId: "member-1",
+      initials: "D.M.",
+      entryRef: "4F7A2C",
+      month: "2026-10",
+      drawnAt: "2026-10-01T19:00:00.000Z",
+      entryCount: 3,
+      potAmount: 3.75,
+      fingerprint,
+      entrantsHash,
+      winnerIndex: 0,
+    });
+    assert.equal(createdFields, 3);
+    assert.equal(posted.dataItem.id, "2026-10");
+    assert.equal(posted.dataItem.data.fingerprint, fingerprint);
+    assert.equal(posted.dataItem.data.entrantsHash, entrantsHash);
+    assert.equal(posted.dataItem.data.winnerIndex, 0);
+    assert.equal(posted.dataItem.data.memberId, "member-1");
+    assert.equal("winnerName" in posted.dataItem.data, false);
+    assert.equal(result.created, true);
+    assert.equal(result.record.fingerprint, fingerprint);
+    assert.equal(result.record.winnerIndex, 0);
+    assert.equal(JSON.stringify(result.record).includes("Daniel"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+const EMBED_FRAME_ANCESTORS =
+  "frame-ancestors https://www.alconbury-weald.org https://alconbury-weald.org https://*.wix.com https://*.wixsite.com https://*.filesusr.com https://*.wixstatic.com";
+
+test("only the winners embed can be framed, and only by the Wix site", async () => {
+  const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+  const embed = config.headers.find((rule) => rule.source === "/winners-embed");
+  const embedCsp = embed.headers.find((header) => header.key === "Content-Security-Policy").value;
+  assert.equal(embedCsp, EMBED_FRAME_ANCESTORS);
+  assert.equal(embed.headers.some((header) => header.key === "X-Frame-Options"), false);
+  const nested = config.headers.find((rule) => rule.source === "/winners-embed/(.*)");
+  assert.equal(nested.headers.find((header) => header.key === "Content-Security-Policy").value, EMBED_FRAME_ANCESTORS);
+  const deny = config.headers.find((rule) => rule.source.includes("(?!winners-embed)"));
+  assert.equal(deny.headers.find((header) => header.key === "Content-Security-Policy").value, "frame-ancestors 'none'");
+  assert.equal(deny.headers.find((header) => header.key === "X-Frame-Options").value, "DENY");
+});
+
+test("public copy does not tell visitors to add CMS in the editor", async () => {
+  const files = ["../lib/store.js", "../public/main.js", "../public/winners-embed/index.html", "../README.md"];
+  for (const file of files) {
+    const text = await readFile(new URL(file, import.meta.url), "utf8");
+    assert.equal(/Add CMS in the Wix Editor/i.test(text), false, file);
+  }
+  const embed = await readFile(new URL("../public/winners-embed/index.html", import.meta.url), "utf8");
+  assert.match(embed, /No draws yet\. The first draw is on 1 October 2026 at 8pm\./);
+  assert.match(embed, /Example data\. Not a real draw\./);
+  assert.match(embed, /\/api\/winners/);
+  assert.match(embed, /createElement\("details"\)/);
+  const main = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
+  assert.match(main, /Fairness check: \$\{draw\.fingerprint\}/);
+  assert.match(main, /Entrants check: \$\{draw\.entrantsHash\}/);
 });
 
 test("source files do not contain em or en dashes", async () => {

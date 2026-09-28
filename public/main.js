@@ -1,5 +1,4 @@
-const HISTORY_UNAVAILABLE_MESSAGE =
-  "Draw history is unavailable because Wix CMS is not added to the site yet. Add CMS in the Wix Editor and save to turn on draw history.";
+const HISTORY_UNAVAILABLE_MESSAGE = "Draw history is unavailable right now.";
 
 const notice = document.getElementById("notice");
 const adminForm = document.getElementById("admin-form");
@@ -52,6 +51,15 @@ function monthTitle(month) {
 
 function pastWinnerText(draw) {
   return `${monthTitle(draw.month)}: ${draw.label}. ${draw.entryCount} entries, pot ${draw.potLabel}.`;
+}
+
+function pastWinnerDetail(draw) {
+  if (!draw) return "";
+  const parts = [pastWinnerText(draw)];
+  if (draw.drawnAtLabel) parts.push(`Drawn ${draw.drawnAtLabel}.`);
+  if (draw.fingerprint) parts.push(`Fairness check: ${draw.fingerprint}.`);
+  if (draw.entrantsHash) parts.push(`Entrants check: ${draw.entrantsHash}.`);
+  return parts.join(" ");
 }
 
 function seenKey(draw) {
@@ -211,7 +219,7 @@ function renderPastWinners(history, unavailableMessage) {
   });
   const show = () => {
     const draw = history[Number(select.value)];
-    detail.textContent = draw ? pastWinnerText(draw) : "";
+    detail.textContent = draw ? pastWinnerDetail(draw) : "";
   };
   select.onchange = show;
   show();
@@ -352,7 +360,8 @@ function renderAdminHistory(draws, unavailableMessage) {
   for (const draw of draws) {
     const item = document.createElement("li");
     const who = draw.fullName ? `${draw.fullName}, ${draw.label}` : draw.label;
-    item.textContent = `${who}, ${draw.drawnAtLabel}.`;
+    const check = draw.fingerprint ? ` Fairness check: ${draw.fingerprint}.` : "";
+    item.textContent = `${who}, ${draw.drawnAtLabel}.${check}`;
     list.append(item);
   }
 }
