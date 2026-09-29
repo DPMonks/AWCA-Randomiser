@@ -508,7 +508,7 @@ function renderMembers(members) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.colSpan = 6;
-    cell.textContent = "No lottery plan members were found.";
+    cell.textContent = "No lottery plan orders were found.";
     row.append(cell);
     body.append(row);
     return;

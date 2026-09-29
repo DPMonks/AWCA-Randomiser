@@ -24,11 +24,11 @@ import { pickWinner } from "../lib/draw.js";
 import { EMAIL_UNAVAILABLE, activeEntrants, buildMembers, isPendingCancellation, subscriberEmail } from "../lib/entrants.js";
 import { drawFingerprint, hashEntrantRefs, sortedEntryRefs } from "../lib/fairness.js";
 import { DRAW_CATCHUP_MS, formatUkDate, isDrawDue, isWithinDrawWindow, londonMonthKey, monthDrawInstant, nextDrawDate, potFor } from "../lib/format.js";
-import { ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, getPublicWinners, runDraw } from "../lib/lottery.js";
+import { buildDrawRecord, ensureMonthlyDraw, getAdminDraws, getMemberList, getPublicState, getPublicWinners, runDraw } from "../lib/lottery.js";
 import { MOCK_KNOWN_EMAILS } from "../lib/mock.js";
 import { CMS_NOT_INSTALLED_MESSAGE, HISTORY_UNAVAILABLE_MESSAGE, historyUnavailableMessage } from "../lib/store.js";
 import { selectLotteryPlan } from "../lib/plans.js";
-import { entryReference, initialsFromName, publicWinnerLabel } from "../lib/privacy.js";
+import { canonicalEntryRef, displayEntryRef, entryNumberFromRef, entryReference, initialsFromName, numberedDisplayName, publicWinnerLabel } from "../lib/privacy.js";
 import { drawCollectionSpec, insertDrawIfAbsent, toDrawRecord } from "../lib/wix.js";
 
 const savedEnv = { ...process.env };
@@ -94,6 +94,8 @@ test("automatic draw window is the 24 hours after 20:00 UK on the 1st", () => {
 
 test("pot is 1.25 per active entry", () => {
   assert.equal(potFor(0), 0);
+  assert.equal(potFor(1), 1.25);
+  assert.equal(potFor(2), 2.5);
   assert.equal(potFor(4), 5);
   assert.equal(potFor(3), 3.75);
 });
@@ -133,9 +135,10 @@ test("plan selection prefers the configured id, then price, then name", () => {
   assert.equal(selectLotteryPlan([], ""), null);
 });
 
-test("members collapse to one row and only active rows are drawn", () => {
+test("each plan order is its own row and only active orders are drawn", () => {
   const orders = [
     {
+      id: "ada-cancelled",
       status: "CANCELED",
       buyer: { memberId: "ada" },
       startDate: "2026-01-01T00:00:00.000Z",
@@ -143,12 +146,14 @@ test("members collapse to one row and only active rows are drawn", () => {
       updatedDate: "2026-02-01T00:00:00.000Z",
     },
     {
+      id: "ada-active",
       status: "ACTIVE",
       buyer: { memberId: "ada" },
       startDate: "2026-03-01T00:00:00.000Z",
       updatedDate: "2026-03-01T00:00:00.000Z",
     },
     {
+      id: "ben-ended",
       status: "ENDED",
       buyer: { memberId: "ben" },
       startDate: "2025-01-01T00:00:00.000Z",
@@ -161,15 +166,127 @@ test("members collapse to one row and only active rows are drawn", () => {
     ["ben", "Ben Example"],
   ]);
   const members = buildMembers(orders, names);
-  assert.equal(members.length, 2);
+  assert.equal(members.length, 3);
   assert.equal(members[0].name, "Ada Example");
+  assert.equal(members[0].orderId, "ada-active");
   assert.equal(members[0].active, true);
+  assert.equal(members[0].entryNumber, 1);
   assert.equal(members[0].status, "Active");
-  assert.equal(members[1].status, "Ended");
+  assert.equal(members.find((member) => member.orderId === "ada-cancelled").active, false);
+  assert.equal(members.find((member) => member.orderId === "ben-ended").status, "Ended");
   const entrants = activeEntrants(members);
   assert.deepEqual(entrants.map((member) => member.memberId), ["ada"]);
   assert.equal(pickWinner(entrants, () => 0).name, "Ada Example");
   assert.equal(pickWinner([], () => 0), null);
+});
+
+test("two active plans on one account are two stable entries", () => {
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  delete process.env.ADMIN_PASSWORD;
+  delete process.env.WIX_MOCK;
+  delete process.env.EXCLUDE_PENDING_CANCELLATION;
+  const names = new Map([["ada", "Ada Example"]]);
+  const orders = [
+    {
+      id: "newer",
+      status: "ACTIVE",
+      buyer: { memberId: "ada" },
+      startDate: "2026-04-01T00:00:00.000Z",
+      createdDate: "2026-04-01T00:00:00.000Z",
+    },
+    {
+      id: "older",
+      status: "ACTIVE",
+      buyer: { memberId: "ada" },
+      startDate: "2026-01-01T00:00:00.000Z",
+      createdDate: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "same-day-b",
+      status: "ACTIVE",
+      buyer: { memberId: "ada" },
+      startDate: "2026-01-01T00:00:00.000Z",
+      createdDate: "2026-01-02T00:00:00.000Z",
+    },
+    {
+      id: "paused",
+      status: "PAUSED",
+      buyer: { memberId: "ada" },
+      startDate: "2025-01-01T00:00:00.000Z",
+    },
+  ];
+  try {
+    const duplicate = buildMembers([...orders, orders[1]], names);
+    assert.equal(activeEntrants(duplicate).filter((row) => row.orderId === "older").length, 1);
+    const forward = buildMembers(orders, names);
+    const backward = buildMembers([...orders].reverse(), names);
+    assert.deepEqual(
+      forward.map((row) => [row.orderId, row.entryNumber, row.active]),
+      backward.map((row) => [row.orderId, row.entryNumber, row.active])
+    );
+    const entrants = activeEntrants(forward);
+    assert.deepEqual(entrants.map((row) => row.orderId), ["older", "same-day-b", "newer"]);
+    assert.deepEqual(entrants.map((row) => row.entryNumber), [1, 2, 3]);
+    const base = entryReference("ada");
+    assert.equal(displayEntryRef("ada", 1), base);
+    assert.equal(displayEntryRef("ada", entrants[1].entryNumber), `${base} (2)`);
+    assert.equal(displayEntryRef("ada", entrants[2].entryNumber), `${base} (3)`);
+    assert.equal(pickWinner(entrants, () => 0).orderId, "older");
+    assert.equal(pickWinner(entrants, () => 1).orderId, "same-day-b");
+    assert.equal(pickWinner(entrants, () => 2).orderId, "newer");
+    assert.equal(potFor(entrants.length), 3.75);
+
+    const firstWins = buildDrawRecord(entrants, entrants[0], {
+      month: "2026-10",
+      drawnAt: "2026-10-01T19:00:00.000Z",
+    });
+    const secondWins = buildDrawRecord(entrants, entrants[1], {
+      month: "2026-10",
+      drawnAt: "2026-10-01T19:00:00.000Z",
+    });
+    assert.equal(firstWins.entryCount, 3);
+    assert.equal(firstWins.potAmount, 3.75);
+    assert.equal(firstWins.entryRef, base);
+    assert.equal(secondWins.entryRef, `${base} (2)`);
+    assert.equal(publicWinnerLabel(secondWins), `A.E. - Entry ${base} (2)`);
+    assert.equal(numberedDisplayName("Ada Example", entryNumberFromRef(secondWins.entryRef)), "Ada Example (2)");
+    assert.equal(numberedDisplayName("Ada Example", entryNumberFromRef(firstWins.entryRef)), "Ada Example");
+    const refs = entrants.map((row) => displayEntryRef(row.memberId, row.entryNumber));
+    assert.equal(secondWins.winnerIndex, sortedEntryRefs(refs).indexOf(secondWins.entryRef));
+    assert.equal(secondWins.entrantsHash, hashEntrantRefs(refs));
+    assert.notEqual(hashEntrantRefs(refs), hashEntrantRefs([base]));
+    assert.equal(canonicalEntryRef(`${base.toLowerCase()} (2)`), `${base} (2)`);
+    assert.equal(canonicalEntryRef(`${base} (1)`), "");
+
+    const cancelled = orders.map((order) => (
+      order.id === "newer" ? { ...order, status: "CANCELED", cancellation: { requestedDate: "2026-05-01T00:00:00.000Z" } } : order
+    ));
+    const afterCancel = activeEntrants(buildMembers(cancelled, names));
+    assert.deepEqual(afterCancel.map((row) => [row.orderId, row.entryNumber]), [
+      ["older", 1],
+      ["same-day-b", 2],
+    ]);
+    assert.equal(displayEntryRef("ada", afterCancel[0].entryNumber).includes("(2)"), false);
+
+    const onlyOlder = cancelled.map((order) => (
+      order.id === "same-day-b" ? { ...order, status: "ENDED", endDate: "2026-05-01T00:00:00.000Z" } : order
+    ));
+    const single = activeEntrants(buildMembers(onlyOlder, names));
+    assert.deepEqual(single.map((row) => [row.orderId, row.entryNumber]), [["older", 1]]);
+    assert.equal(displayEntryRef(single[0].memberId, single[0].entryNumber), base);
+    assert.equal(potFor(single.length), 1.25);
+
+    const keptNewest = orders.map((order) => (
+      order.id === "older" || order.id === "same-day-b"
+        ? { ...order, status: "CANCELED", cancellation: { requestedDate: "2026-05-01T00:00:00.000Z" } }
+        : order
+    ));
+    const newestOnly = activeEntrants(buildMembers(keptNewest, names));
+    assert.deepEqual(newestOnly.map((row) => [row.orderId, row.entryNumber]), [["newer", 1]]);
+    assert.equal(displayEntryRef(newestOnly[0].memberId, newestOnly[0].entryNumber), base);
+  } finally {
+    restoreEnv();
+  }
 });
 
 test("subscriber email prefers the login address, then the contact primary address", () => {
@@ -375,8 +492,14 @@ test("initials use the first and last name, and hyphenated parts", () => {
   assert.equal(initialsFromName("Member"), "");
   assert.equal(initialsFromName("member"), "");
   assert.equal(publicWinnerLabel({ initials: "D.M.", entryRef: "4F7A2C" }), "D.M. - Entry 4F7A2C");
+  assert.equal(publicWinnerLabel({ initials: "D.M.", entryRef: "4F7A2C (2)" }), "D.M. - Entry 4F7A2C (2)");
+  assert.equal(publicWinnerLabel({ initials: "D.M.", entryRef: "4f7a2c (3)" }), "D.M. - Entry 4F7A2C (3)");
   assert.equal(publicWinnerLabel({ initials: "", entryRef: "4F7A2C" }), "Entry 4F7A2C");
   assert.equal(publicWinnerLabel({ initials: "Daniel Monks", entryRef: "4F7A2C" }), "Entry 4F7A2C");
+  assert.equal(numberedDisplayName("Daniel Monks", 1), "Daniel Monks");
+  assert.equal(numberedDisplayName("Daniel Monks", 2), "Daniel Monks (2)");
+  assert.equal(entryNumberFromRef("4F7A2C"), 1);
+  assert.equal(entryNumberFromRef("4F7A2C (2)"), 2);
 });
 
 test("entry reference is a stable HMAC prefix of the member id", () => {
@@ -441,6 +564,21 @@ test("draw storage keeps initials and an entry reference, not the full name", ()
     assert.equal(record.entryRef, entryReference("member-1"));
     assert.equal("winnerName" in record, false);
     assert.equal(JSON.stringify(record).includes("Daniel Monks"), false);
+
+    const extraEntry = toDrawRecord({
+      data: {
+        winnerMemberId: "member-1",
+        initials: "D.M.",
+        entryRef: "4F7A2C (2)",
+        drawnAt: "2026-09-01T19:00:00.000Z",
+        entryCount: 2,
+        potAmount: 2.5,
+      },
+    });
+    assert.equal(extraEntry.entryRef, "4F7A2C (2)");
+    assert.equal(extraEntry.initials, "D.M.");
+    assert.equal(extraEntry.entryCount, 2);
+    assert.equal(JSON.stringify(extraEntry).includes("Daniel"), false);
 
     const spec = drawCollectionSpec();
     assert.equal(spec.permissions.read, "ADMIN");
@@ -655,6 +793,162 @@ test("WDE0110 leaves live entries available and refuses the draw", async () => {
       dataCalls.some((call) => /\/wix-data\/v2\/items$/.test(call.path)),
       false
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("two active Wix orders on one account are two entries, and the monthly draw still runs once", async () => {
+  delete process.env.WIX_MOCK;
+  delete process.env.EXCLUDE_PENDING_CANCELLATION;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  process.env.WIX_LOTTERY_PLAN_ID = "plan-lottery";
+  process.env.ENTRY_REF_SECRET = "committee-secret";
+  process.env.ADMIN_PASSWORD = "committee-secret";
+  const originalFetch = globalThis.fetch;
+  const saved = [];
+  let posts = 0;
+  const base = entryReference("dan");
+  const second = `${base} (2)`;
+
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (path.includes("/pricing-plans/v3/plans/query")) {
+      return json({
+        plans: [{ id: "plan-lottery", name: "AWCA Lottery", currency: "GBP" }],
+      });
+    }
+    if (path.includes("/pricing-plans/v2/orders")) {
+      return json({
+        orders: [
+          {
+            id: "order-new",
+            status: "ACTIVE",
+            buyer: { memberId: "dan" },
+            startDate: "2026-04-01T00:00:00.000Z",
+            createdDate: "2026-04-01T00:00:00.000Z",
+          },
+          {
+            id: "order-old",
+            status: "ACTIVE",
+            buyer: { memberId: "dan" },
+            startDate: "2026-01-01T00:00:00.000Z",
+            createdDate: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            id: "order-cancelled",
+            status: "CANCELED",
+            buyer: { memberId: "dan" },
+            startDate: "2025-06-01T00:00:00.000Z",
+            cancellation: { requestedDate: "2025-12-01T00:00:00.000Z" },
+          },
+        ],
+        pagingMetadata: { total: 3, hasNext: false },
+      });
+    }
+    if (path.includes("/members/v1/members/query")) {
+      return json({
+        members: [
+          {
+            id: "dan",
+            loginEmail: "daniel.monks@example.com",
+            contact: { firstName: "Daniel", lastName: "Monks" },
+          },
+        ],
+      });
+    }
+    if (path.includes("/wix-data/v2/collections/")) {
+      return json({
+        collection: {
+          fields: [
+            { key: "fingerprint" },
+            { key: "entrantsHash" },
+            { key: "winnerIndex" },
+          ],
+        },
+      });
+    }
+    if (path.includes("/wix-data/v2/items/query")) {
+      return json({ dataItems: saved });
+    }
+    if (path.includes("/wix-data/v2/items") && (options.method || "GET") === "POST") {
+      posts += 1;
+      const body = JSON.parse(options.body);
+      saved.unshift(body.dataItem);
+      return json({ dataItem: body.dataItem });
+    }
+    throw new Error(`Unexpected Wix call ${path}`);
+  };
+
+  try {
+    const beforeDraw = new Date("2026-09-15T12:00:00.000Z");
+    const state = await getPublicState([], beforeDraw);
+    assert.equal(state.activeEntries, 2);
+    assert.equal(state.pot, 2.5);
+    assert.equal(state.potLabel, "£2.50");
+    assert.deepEqual([...state.entryRefs].sort(), [base, second].sort());
+    assert.equal(JSON.stringify(state).includes("Daniel"), false);
+    assert.equal(JSON.stringify(state).includes("@"), false);
+    assert.equal(JSON.stringify(state).includes("fullName"), false);
+    const early = await ensureMonthlyDraw({ now: beforeDraw });
+    assert.equal(early.status, "not-due");
+    assert.equal(early.created, false);
+    assert.equal(posts, 0);
+
+    const members = await getMemberList();
+    assert.deepEqual(members.members.map((member) => [member.name, member.entryRef, member.status]), [
+      ["Daniel Monks", base, "Active"],
+      ["Daniel Monks (2)", second, "Active"],
+      ["Daniel Monks", base, "Cancelled"],
+    ]);
+    assert.equal(members.members[0].email, "daniel.monks@example.com");
+    assert.equal("memberId" in members.members[0], false);
+    assert.equal("orderId" in members.members[0], false);
+
+    const drawAt = new Date("2026-10-01T19:00:00.000Z");
+    const first = await ensureMonthlyDraw({ now: drawAt });
+    const again = await ensureMonthlyDraw({ now: drawAt });
+    assert.equal(first.created, true);
+    assert.equal(again.created, false);
+    assert.equal(again.record.entryRef, first.record.entryRef);
+    assert.equal(posts, 1);
+    assert.equal(saved[0].id, "2026-10");
+    assert.equal(first.record.memberId, "dan");
+    assert.equal(first.record.entryCount, 2);
+    assert.equal(first.record.potAmount, 2.5);
+    assert.equal(first.record.initials, "D.M.");
+    assert.ok([base, second].includes(first.record.entryRef));
+    assert.equal(first.record.winnerIndex, sortedEntryRefs([base, second]).indexOf(first.record.entryRef));
+    assert.equal(first.record.fingerprint, drawFingerprint({
+      month: "2026-10",
+      drawnAt: first.record.drawnAt,
+      entryRefs: [base, second],
+      winnerIndex: first.record.winnerIndex,
+    }));
+    assert.equal(JSON.stringify(first.record).includes("Daniel"), false);
+
+    const after = await getPublicState([], drawAt);
+    assert.equal(after.drawDue, false);
+    assert.equal(after.activeEntries, 2);
+    assert.equal(after.pot, 2.5);
+    assert.equal(after.lastWinner.entryRef, first.record.entryRef);
+    assert.equal(after.lastWinner.label, `D.M. - Entry ${first.record.entryRef}`);
+    assert.equal(JSON.stringify(after).includes("Daniel"), false);
+    assert.equal(JSON.stringify(after).includes("fullName"), false);
+
+    const adminDraws = await getAdminDraws();
+    const winner = adminDraws.draws.find((draw) => draw.month === "2026-10");
+    const number = entryNumberFromRef(first.record.entryRef);
+    assert.equal(winner.fullName, number > 1 ? "Daniel Monks (2)" : "Daniel Monks");
+    assert.equal(winner.email, "daniel.monks@example.com");
+    assert.equal(winner.label, after.lastWinner.label);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();

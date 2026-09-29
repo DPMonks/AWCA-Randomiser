@@ -171,7 +171,8 @@ export function mountDrum(canvas, hooks = {}) {
     const color = colorFor(ref);
     const material = new THREE.MeshPhongMaterial({ color, shininess: 50 });
     const mesh = new THREE.Mesh(ballGeo, material);
-    const texture = labelTexture(ref, color.getStyle());
+    const lines = entryBallLines(ref);
+    const texture = labelTexture(ref, color.getStyle(), lines);
     const label = new THREE.Mesh(
       labelGeo,
       new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
@@ -224,12 +225,18 @@ export function mountDrum(canvas, hooks = {}) {
     balls.delete(ball.ref);
   }
 
+  function entryBallLines(ref) {
+    const match = /^([0-9A-F]{6}) \(([2-9]|[1-9]\d+)\)$/.exec(ref);
+    if (!match) return [ref];
+    return [match[1], `(${match[2]})`];
+  }
+
   function setEntries(refs) {
     const unique = [];
     const seen = new Set();
     for (const value of refs || []) {
       const ref = String(value || "").trim().toUpperCase();
-      if (!/^[0-9A-F]{6}$/.test(ref) || seen.has(ref)) continue;
+      if (!/^[0-9A-F]{6}(?: \((?:[2-9]|[1-9]\d+)\))?$/.test(ref) || seen.has(ref)) continue;
       seen.add(ref);
       unique.push(ref);
     }
