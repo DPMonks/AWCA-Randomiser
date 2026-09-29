@@ -124,9 +124,12 @@ test("the spotlight embed matches the business embed frame rules", () => {
   assert.match(html, /#4f5139/);
   assert.match(html, /#f4f1e6/);
   assert.match(html, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
-  assert.match(html, /@media \(max-width: 640px\)/);
-  assert.match(html, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(html, /aspect-ratio: 1/);
+  assert.match(html, /overflow:\s*hidden/);
+  assert.match(html, /height:\s*100%/);
+  assert.match(html, /clamp\(/);
+  assert.match(html, /text-overflow:\s*ellipsis/);
+  assert.equal(/repeat\(2,\s*minmax\(0,\s*1fr\)\)/.test(html), false);
   assert.match(html, /<script src="\/biz-beacon\.js"><\/script>/);
   assert.match(html, /<script src="\/business-spotlight\.js"><\/script>/);
   assert.match(script, /target = "_blank"/);
