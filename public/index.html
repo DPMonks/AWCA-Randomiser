@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>AWCA Lottery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="description" content="AWCA lottery for Alconbury Weald. Active entries, prize pot, and the last winner." />
+  <meta name="description" content="AWCA lottery for Alconbury Weald. Each active plan is one entry, plus the prize pot and the last winner." />
   <meta name="theme-color" content="#1f3b5c" />
   <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -34,12 +34,13 @@
 <main class="awca-main">
   <section class="awca-panel">
     <h2>Lottery Dashboard</h2>
+    <p class="awca-subtext">Each active lottery plan subscription is one entry. Another subscription on the same account is another chance to win.</p>
 
     <div class="awca-stats">
       <div class="awca-stat">
         <h3>Total Entries</h3>
         <p id="total-entries">Loading</p>
-        <p class="awca-subtext">Active lottery subscribers</p>
+        <p class="awca-subtext">Each active plan counts</p>
       </div>
 
       <div class="awca-stat">
@@ -122,6 +123,7 @@
         <p class="awca-subtext">Full names and email addresses are loaded live for the committee. They are not saved with the draw.</p>
         <ul id="admin-history" class="awca-history"></ul>
       </div>
+      <p class="awca-subtext">Each active lottery plan is one entry. Extra active plans on the same account are numbered (2), (3), and so on.</p>
       <div class="awca-table-wrap">
         <table class="awca-table">
           <thead>

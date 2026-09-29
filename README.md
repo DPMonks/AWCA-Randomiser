@@ -1,6 +1,6 @@
 # AWCA Lottery
 
-A single page for the Alconbury Weald Community Association lottery. Active subscribers are read live from the Wix site. The prize pot is the number of active subscribers times £1.25. The winner is drawn automatically at 20:00 UK time on the 1st of each month, chosen evenly from the active subscribers. Draw Winner stays as a manual fallback.
+A single page for the Alconbury Weald Community Association lottery. Plan orders are read live from the Wix site. Each active lottery plan order is one entry. A second active order on the same member account is a second entry, so that person has two chances. The prize pot is the number of active entries times £1.25, which is half of the £2.50 plan price. The winner is drawn automatically at 20:00 UK time on the 1st of each month, chosen evenly from the active entries. Draw Winner stays as a manual fallback.
 
 ## Environment variables
 
@@ -55,13 +55,13 @@ In the Wix dashboard, open Pricing Plans and select the £2.50 lottery plan. If 
 
 If you leave that variable empty, the server logs a line like `AWCA lottery plan selected: id=... name=... via price 2.50 GBP`. Copy that id into `WIX_LOTTERY_PLAN_ID` once you are happy it is the right plan. Set the variable if more than one plan could match.
 
-Only orders whose status is `ACTIVE` go into the draw, one entry per member. Cancelled, ended, paused, pending, and draft orders stay on the admin list and are not drawn.
+Only orders whose status is `ACTIVE` go into the draw. Each active order is its own entry, including two or more active lottery orders on the same Wix member. Cancelled, ended, paused, pending, and draft orders stay on the admin list and are not drawn. When one of those orders stops being active, it drops out of the draw on the next page load. One remaining active order is a single entry again.
 
 An active order can also have auto-renew cancelled, with `cancellation.effectiveAt` set to `NEXT_PAYMENT_DATE`. That member has paid until the next payment date. They stay in the draw by default. Set `EXCLUDE_PENDING_CANCELLATION` to `1` to leave them off the draw while still listing them for the committee. Leave the variable unset, or set it to `0`, to keep the default.
 
 ## Public winners and entry references
 
-The public page, the public draw history, and `GET /api/state` never include a winner's full name or email. A winner is shown as initials plus an entry reference, for example `D.M. - Entry 4F7A2C`.
+The public page, the public draw history, and `GET /api/state` never include a winner's full name or email. A winner is shown as initials plus an entry reference, for example `D.M. - Entry 4F7A2C`. A second entry for that person is `D.M. - Entry 4F7A2C (2)`.
 
 The admin member list, the official draw record, and Draw Winner show each lottery subscriber's email next to their name. The address is the member login email from the Members API. If that is empty, it is the contact's primary email. Those addresses are loaded live and are not written into the draw collection. If the API key cannot read them, the admin view shows `Email unavailable`. Login emails need Read Members. Contact emails need Read Contacts, `SCOPE.DC-CONTACTS.READ-CONTACTS`.
 
@@ -69,11 +69,11 @@ The admin section also has Community members. That list is every site member fro
 
 Initials come from the first and last name. `Daniel Monks` becomes `D.M.` A single name uses that name's initial. Hyphenated parts each contribute an initial, so `Mary-Jane Watson` becomes `M.J.W.` If no name is available, the public label is the entry reference only.
 
-Wix Pricing Plans orders do not include a short public order number. Order ids are long internal ids, so they are not used. The entry reference is the first 6 hex characters, in capitals, of an HMAC-SHA256 of the Wix member id. The key is `ENTRY_REF_SECRET`, or `ADMIN_PASSWORD` when that secret is not set. The same member gets the same reference every month, so they can recognise their own number.
+Wix Pricing Plans orders do not include a short public order number. Order ids are long internal ids, so they are not shown. The entry reference is the first 6 hex characters, in capitals, of an HMAC-SHA256 of the Wix member id. The key is `ENTRY_REF_SECRET`, or `ADMIN_PASSWORD` when that secret is not set. The same member gets the same code every month, so they can recognise their own number. Extra active plans on that account keep the same code and add ` (2)`, ` (3)`, and so on. The first entry has no number. Numbers follow the plan start date, then the date the order was created, then the Wix order id, so the same active orders keep the same numbers on every page load. A cancelled or ended plan is left out, and the active plans are numbered again.
 
 Set `ENTRY_REF_SECRET` to a long random value and leave it in place. Changing the secret changes newly calculated references. A draw that was already saved keeps the reference stored on that row. Prefer a dedicated secret so that changing the admin password does not renumber everyone.
 
-The admin member list shows the full name beside the entry reference. The admin draw result, and the official draw record on that same panel, show the full name. Those names are read live from the Members API. They are not written into the draw collection.
+The admin member list shows one row per plan order. The full name is numbered for extra active entries, for example `Daniel Monks (2)`, beside that entry's reference. The admin draw result, and the official draw record on that same panel, show the full name with the same number when the winning entry had one. Those names are read live from the Members API. They are not written into the draw collection. The public page still shows initials and the entry reference only.
 
 ## Draw history
 
@@ -85,7 +85,7 @@ Wix error WDE0110 means the CMS app is not installed. The message in that case s
 
 ## Fairness fingerprint
 
-When a draw is saved, the server stores two SHA-256 hex digests. The entrants hash is the hash of the sorted entry references, one reference per line. The fairness fingerprint is the hash of these lines, in order: month, drawn-at time in UTC, winner index, then the same sorted entry references. The winner index counts from 0 in that sorted list. Sorting the references first means the order the members were loaded does not change the fingerprint.
+When a draw is saved, the server stores two SHA-256 hex digests. The entrants hash is the hash of the sorted entry references, one reference per line. A second plan for the same member is its own line, the same code with ` (2)` on the end. The fairness fingerprint is the hash of these lines, in order: month, drawn-at time in UTC, winner index, then the same sorted entry references. The winner index counts from 0 in that sorted list. Sorting the references first means the order the orders were loaded does not change the fingerprint.
 
 `GET /api/state` and `GET /api/winners` include the fingerprint and the entrants hash when the saved draw has them. Older draws saved before this check stay on the list without a fingerprint. The public responses still use initials and the entry reference only.
 
@@ -115,7 +115,7 @@ Vercel cron is scheduled in UTC and can run late on the Hobby plan. `vercel.json
 
 `GET /api/state` runs the same draw if the month is due and no result is saved yet, so a late cron does not hold the result back. The public page counts down to the next 20:00 UK time. At that time it shows "Drawing now", polls `/api/state`, and plays the drum as soon as the saved result exists. Later visitors in the same month see the drum once.
 
-Each month has one draw. The stored item id is the London month, for example `2026-10`. If two requests insert together, the second one reads back the first winner. The entry count and pot are snapshotted from the active entrants at draw time. The winner is chosen with `crypto.randomInt`.
+Each month has one draw. The stored item id is the London month, for example `2026-10`. If two requests insert together, the second one reads back the first winner. The entry count and pot are snapshotted from the active entries at draw time, one entry per active plan order. The winner is chosen with `crypto.randomInt`, once per entry, so two active plans give two chances.
 
 Draw history goes through a small adapter with `list` and `insertIfAbsent`. The current adapter is the Wix CMS collection. It can be swapped later without changing the draw rules.
 
