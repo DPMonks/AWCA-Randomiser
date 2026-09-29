@@ -14,72 +14,134 @@
       --cream: #f4f1e6;
     }
     * { box-sizing: border-box; }
-    html, body { margin: 0; background: transparent; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
     body {
       color: var(--cream);
       font-family: "DM Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
     }
     .panel {
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(4px, 1.1vw, 8px);
       background: var(--olive);
       border-radius: 4px;
-      padding: 16px;
+      padding: clamp(6px, 1.5vw, 12px);
+      overflow: hidden;
     }
-    .status { margin: 0; text-align: center; color: var(--cream); }
+    .heading {
+      margin: 0;
+      flex: 0 0 auto;
+      text-align: center;
+      font-size: clamp(0.68rem, 2.1vw, 0.95rem);
+      font-weight: 500;
+      line-height: 1.15;
+      letter-spacing: 0.01em;
+    }
+    .status {
+      margin: 0;
+      flex: 0 0 auto;
+      text-align: center;
+      color: var(--cream);
+      font-size: clamp(0.68rem, 2vw, 0.9rem);
+      line-height: 1.25;
+    }
     .grid {
       list-style: none;
       margin: 0;
       padding: 0;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 0;
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
+      grid-template-rows: minmax(0, 1fr);
+      gap: clamp(4px, 1.2vw, 12px);
+    }
+    .grid > li {
+      min-width: 0;
+      min-height: 0;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      container-type: size;
     }
     .tile {
+      width: clamp(40px, min(100%, 100cqh), 260px);
       aspect-ratio: 1;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      padding: 10px;
+      gap: clamp(2px, 0.8vw, 8px);
+      padding: clamp(3px, 1vw, 10px);
       background: var(--olive-dark);
       color: var(--cream);
       text-decoration: none;
       border-radius: 4px;
       text-align: center;
+      min-width: 0;
+      overflow: hidden;
     }
     .tile:hover .name, .tile:focus .name { text-decoration: underline; }
     .logo {
-      width: 68%;
+      width: 62%;
       aspect-ratio: 1;
+      flex: 0 1 auto;
+      min-height: 0;
       background: #fff;
       border-radius: 3px;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      container-type: inline-size;
     }
     .logo img { max-width: 86%; max-height: 86%; object-fit: contain; }
     .logo.initial {
       background: var(--cream);
       color: var(--olive);
-      font-size: 1.8rem;
+      font-size: clamp(0.75rem, 42cqw, 1.8rem);
       font-weight: 600;
     }
     .name {
       margin: 0;
-      font-size: 0.95rem;
-      line-height: 1.25;
-      overflow-wrap: anywhere;
+      width: 100%;
+      min-width: 0;
+      flex: 0 0 auto;
+      font-size: clamp(0.5rem, 2.35vw, 0.95rem);
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .tile.open { border: 1px dashed rgba(244, 241, 230, 0.7); background: transparent; }
+    .tile.open {
+      border: 1px dashed rgba(244, 241, 230, 0.7);
+      background: transparent;
+    }
+    .tile.open .name {
+      white-space: normal;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      font-size: clamp(0.55rem, 2.5vw, 0.95rem);
+    }
     [hidden] { display: none !important; }
-    @media (max-width: 640px) {
-      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
   </style>
 </head>
 <body>
-  <section class="panel" aria-label="Business spotlight">
+  <section class="panel" aria-labelledby="spotlight-title">
+    <h1 id="spotlight-title" class="heading">Business spotlight</h1>
     <p id="status" class="status">Loading business spotlight.</p>
     <ul id="spotlight" class="grid" hidden></ul>
   </section>

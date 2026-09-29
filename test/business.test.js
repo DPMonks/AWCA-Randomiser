@@ -203,6 +203,10 @@ test("business embed copy has the empty state and no long dashes", () => {
   assert.ok(html.includes("/businesses/${encodeURIComponent(item.slug)}"));
   assert.equal(/[\u2013\u2014]/.test(html), false);
   assert.equal(html.includes("nofollow"), false);
+  assert.match(html, /overflow:\s*hidden/);
+  assert.match(html, /height:\s*100%/);
+  assert.match(html, /clamp\(/);
+  assert.match(html, /overflow-x:\s*auto/);
 });
 
 test("slugifyBusinessName is stable, lowercase, and hyphenated", () => {
