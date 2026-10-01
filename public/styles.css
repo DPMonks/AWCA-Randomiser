@@ -624,3 +624,17 @@ body.demo-night #lotteryCanvas {
     font-size: 1.15rem;
   }
 }
+
+.awca-rules {
+  max-width: 46rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.awca-rules .awca-panel {
+  overflow-wrap: anywhere;
+}
+
+.awca-footer a {
+  color: var(--awca-secondary);
+}
