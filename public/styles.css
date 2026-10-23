@@ -43,6 +43,33 @@ body {
   background: #fff;
 }
 
+.awca-join {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 48px;
+  margin: 1rem auto 0;
+  padding: 0.85rem 1.75rem;
+  border-radius: 999px;
+  background: var(--awca-primary);
+  color: #fff;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.awca-join:hover,
+.awca-join:focus-visible {
+  background: #245a34;
+}
+
+.awca-join:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
 .awca-notice {
   max-width: 1400px;
   margin: 1rem auto 0;
@@ -500,6 +527,10 @@ body.demo-night .awca-header h1 {
   font-size: 1.35rem;
 }
 
+body.demo-night .awca-join {
+  display: none;
+}
+
 body.demo-night .awca-notice {
   margin-top: 0.4rem;
 }
@@ -559,6 +590,13 @@ body.demo-night #lotteryCanvas {
   .awca-header-inner {
     flex-direction: column;
     text-align: center;
+  }
+
+  .awca-join {
+    width: 100%;
+    max-width: 24rem;
+    min-height: 52px;
+    box-sizing: border-box;
   }
 
   #lotteryCanvas {
