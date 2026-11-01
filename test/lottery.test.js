@@ -588,7 +588,7 @@ test("draw storage keeps initials and an entry reference, not the full name", ()
     assert.equal(spec.fields.some((field) => field.key === "winnerName"), false);
     assert.deepEqual(
       spec.fields.map((field) => field.key),
-      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount", "fingerprint", "entrantsHash", "winnerIndex", "emailSent"]
+      ["memberId", "initials", "entryRef", "month", "drawnAt", "entryCount", "potAmount", "fingerprint", "entrantsHash", "winnerIndex"]
     );
   } finally {
     restoreEnv();
@@ -2045,7 +2045,7 @@ test("a saved draw keeps the month as the item id and stores the fingerprint", a
       email: "daniel@example.com",
       fullName: "Daniel Monks",
     });
-    assert.equal(createdFields, 4);
+    assert.equal(createdFields, 3);
     assert.equal(posted.dataItem.id, "2026-10");
     assert.equal(posted.dataItem.data.fingerprint, fingerprint);
     assert.equal(posted.dataItem.data.entrantsHash, entrantsHash);

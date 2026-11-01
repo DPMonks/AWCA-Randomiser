@@ -3,12 +3,13 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { ensureMonthlyDraw } from "../lib/lottery.js";
 import { copyMail, mailMode, notifyCopyEmails, settleDrawMail, winnerMail } from "../lib/mail.js";
 import { manualMemberId } from "../lib/manual-entrants.js";
 import { MOCK_KNOWN_EMAILS } from "../lib/mock.js";
 import { displayEntryRef } from "../lib/privacy.js";
+import { insertMailClaim, mailClaimCollectionSpec, mailClaimId, readMailClaim, removeMailClaim } from "../lib/wix.js";
 
 const savedEnv = { ...process.env };
 
@@ -263,6 +264,96 @@ test("a manual winner is mailed from the private address on that entry", async (
     });
     assert.equal(again.sent, 0);
     assert.equal(calls.length, 3);
+    const stored = JSON.parse(await readFile(process.env.MOCK_DRAW_FILE, "utf8"));
+    assert.equal(stored.extra[0].emailSent, undefined);
+    assert.equal(stored.claims.length, 3);
+    assert.equal(stored.claims.every((row) => row.status === "sent"), true);
+    assert.equal(JSON.stringify(stored.claims).includes("@"), false);
+    assert.equal(JSON.stringify(stored.claims).includes("test1@example.com"), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreEnv();
+  }
+});
+
+test("a duplicate mail claim id is not owned, and a sent claim is not removed", async () => {
+  delete process.env.WIX_MOCK;
+  delete process.env.VERCEL_ENV;
+  process.env.WIX_API_KEY = "test-key";
+  process.env.WIX_SITE_ID = "site";
+  const originalFetch = globalThis.fetch;
+  const spec = mailClaimCollectionSpec();
+  assert.equal(spec.permissions.read, "ADMIN");
+  assert.equal(spec.permissions.insert, "ADMIN");
+  assert.equal(spec.permissions.update, "ADMIN");
+  assert.equal(spec.permissions.remove, "ADMIN");
+  const id = mailClaimId("2026-11", "winner", "abc123abc123abcd", "live");
+  const seen = new Set();
+  let created = null;
+  let deleted = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    const path = String(url);
+    const method = options.method || "GET";
+    const json = (body, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    if (path.includes("/wix-data/v2/collections") && method === "POST") {
+      created = JSON.parse(options.body).collection;
+      return json({});
+    }
+    if (path.endsWith("/wix-data/v2/items") && method === "POST") {
+      const body = JSON.parse(options.body);
+      assert.equal(body.dataCollectionId, "LotteryMailClaims");
+      if (!created && seen.size === 0) {
+        return json({ message: "WDE0025: Collection LotteryMailClaims does not exist" }, 404);
+      }
+      if (seen.has(body.dataItem.id)) {
+        return json({ message: "WDE0073: Item already exists" }, 409);
+      }
+      seen.add(body.dataItem.id);
+      return json({ dataItem: body.dataItem });
+    }
+    if (method === "GET" && path.includes("/wix-data/v2/items/")) {
+      const itemId = decodeURIComponent(path.split("/items/")[1].split("?")[0]);
+      if (!seen.has(itemId)) return json({ message: "not found" }, 404);
+      return json({
+        dataItem: {
+          id: itemId,
+          data: { month: "2026-11", role: "winner", recipientKey: "abc123abc123abcd", mode: "live", status: "sent", claimedAt: "2026-11-01T20:00:00.000Z", detail: "" },
+        },
+      });
+    }
+    if (method === "DELETE") {
+      deleted += 1;
+      return json({});
+    }
+    throw new Error(`Unexpected Wix call ${method} ${path}`);
+  };
+  try {
+    const first = await insertMailClaim({
+      id,
+      month: "2026-11",
+      role: "winner",
+      key: "abc123abc123abcd",
+      mode: "live",
+      claimedAt: "2026-11-01T20:00:00.000Z",
+    });
+    assert.equal(first.inserted, true);
+    assert.equal(first.id, id);
+    assert.equal(created.id, "LotteryMailClaims");
+    assert.equal(created.permissions.read, "ADMIN");
+    const second = await insertMailClaim({
+      id,
+      month: "2026-11",
+      role: "winner",
+      key: "abc123abc123abcd",
+      mode: "live",
+      claimedAt: "2026-11-01T20:00:01.000Z",
+    });
+    assert.equal(second.inserted, false);
+    const stored = await readMailClaim(id);
+    assert.equal(stored.status, "sent");
+    assert.equal(await removeMailClaim(id), false);
+    assert.equal(deleted, 0);
   } finally {
     globalThis.fetch = originalFetch;
     restoreEnv();

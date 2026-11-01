@@ -161,11 +161,11 @@ The site does not already have a mail provider. Winner and committee notes are s
 
 Three messages are sent for each draw: one to the winner, and one full copy each to the addresses in `NOTIFY_COPY_EMAILS`. The winner note says congratulations, the prize pot, the draw month, and their entry code, and that AWCA will be in touch. It does not list anyone else. Each committee copy includes the winner's name (or "Not recorded"), initials, email, entry code, pot, and draw month.
 
-The draw is saved before any mail is sent. Mail status is stored on that same Wix row in `emailSent` as text. The text has a hash of each recipient, a timestamp, and the mode (`live` or `dry`). It does not store the address. A second run sends only recipients that do not yet have a successful send for the current mode. A dry run does not count as the live send, so turning dry run off later still sends the real notes once.
+The draw is saved before any mail is sent. Each recipient is claimed by inserting a row in the Wix collection `LotteryMailClaims`. The item id is the draw month, the role, a hash of the address, and `live` or `dry`. Wix insert fails when that id already exists, so only the caller whose insert succeeds sends. The row does not store the address. A sent claim is left in place. A failed send deletes that claim so the next try can insert it again. A dry-run claim does not block the live send. Older `LotteryDraws` items do not need a mail field. A missing `emailSent` value is ignored, and it is not treated as already sent.
 
 Non-production deployments, and any deployment with `EMAIL_DRY_RUN=true`, never use the real recipient addresses. They send only to `TEST_EMAIL_TO` and prefix the subject with `[TEST]`. If `TEST_EMAIL_TO` is empty they log a short note with the month and do not call Resend. Production with `EMAIL_ENABLED` unset, or set to anything other than `true`, saves the draw and sends no mail.
 
-A double live email is still possible if Resend accepts the message and the status write then fails for the whole two minute lock. The next try can send that one recipient again. Two callers at the same moment should not both send: the status write is conditional on the previous text, and only the caller that wins it sends.
+Two callers at the same moment cannot both send the same recipient: the second insert fails because the id is already there. A second live email is still possible if Resend accepts the message and the process stops before the claim is marked sent, then two minutes later another run treats that claim as abandoned, deletes it, and sends again. A claim that is still fresh is left alone.
 
 ## Demo drum
 
