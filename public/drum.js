@@ -8,8 +8,8 @@ import {
   stirInPlace,
   SUBSTEPS,
 } from "./drumPhysics.js";
+import { ballEntries } from "./ballList.js";
 
-const MAX_BALLS = 100;
 const DRAW_MIX_MS = 3600;
 
 function reducedMotion() {
@@ -38,8 +38,9 @@ function labelTexture(text, color, lines) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const rows = lines || [text];
-  ctx.font = rows.length > 1 ? "700 42px sans-serif" : "700 48px sans-serif";
-  const start = 128 - (rows.length - 1) * 28;
+  const size = rows.length > 2 ? 34 : rows.length > 1 ? 40 : 48;
+  ctx.font = `700 ${size}px sans-serif`;
+  const start = 128 - (rows.length - 1) * 26;
   rows.forEach((row, index) => {
     ctx.fillText(row, 128, start + index * 56);
   });
@@ -167,12 +168,20 @@ export function mountDrum(canvas, hooks = {}) {
     body.angularVelocity.set(wx * scale, wy * scale, wz * scale);
   }
 
-  function makeBall(ref, index) {
+  function paintLabel(ball, lines) {
+    const fresh = labelTexture(ball.ref, colorFor(ball.ref).getStyle(), lines);
+    ball.label.material.map = fresh;
+    ball.texture?.dispose();
+    ball.texture = fresh;
+    ball.lineKey = lines.join("\n");
+  }
+
+  function makeBall(entry, index) {
+    const ref = entry.ref;
     const color = colorFor(ref);
     const material = new THREE.MeshPhongMaterial({ color, shininess: 50 });
     const mesh = new THREE.Mesh(ballGeo, material);
-    const lines = entryBallLines(ref);
-    const texture = labelTexture(ref, color.getStyle(), lines);
+    const texture = labelTexture(ref, color.getStyle(), entry.lines);
     const label = new THREE.Mesh(
       labelGeo,
       new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })
@@ -204,6 +213,7 @@ export function mountDrum(canvas, hooks = {}) {
       appear: performance.now(),
       removeAt: 0,
       texture,
+      lineKey: entry.lines.join("\n"),
       nextKick: performance.now() + Math.random() * 600,
     };
     balls.set(ref, ball);
@@ -225,31 +235,20 @@ export function mountDrum(canvas, hooks = {}) {
     balls.delete(ball.ref);
   }
 
-  function entryBallLines(ref) {
-    const match = /^([0-9A-F]{6}) \(([2-9]|[1-9]\d+)\)$/.exec(ref);
-    if (!match) return [ref];
-    return [match[1], `(${match[2]})`];
-  }
-
   function setEntries(refs) {
-    const unique = [];
-    const seen = new Set();
-    for (const value of refs || []) {
-      const ref = String(value || "").trim().toUpperCase();
-      if (!/^[0-9A-F]{6}(?: \((?:[2-9]|[1-9]\d+)\))?$/.test(ref) || seen.has(ref)) continue;
-      seen.add(ref);
-      unique.push(ref);
-    }
-    const next = unique.slice(0, MAX_BALLS);
-    const nextSet = new Set(next);
+    const built = ballEntries(refs);
+    const next = built.entries;
+    const nextSet = new Set(next.map((entry) => entry.ref));
     for (const ref of balls.keys()) {
       if (!nextSet.has(ref)) retire(ref);
     }
-    next.forEach((ref, index) => {
-      if (!balls.has(ref)) makeBall(ref, index);
+    next.forEach((entry, index) => {
+      const existing = balls.get(entry.ref);
+      if (!existing) makeBall(entry, index);
+      else if (existing.lineKey !== entry.lines.join("\n")) paintLabel(existing, entry.lines);
     });
-    shownRefs = next;
-    hooks.onOverflow?.(Math.max(0, unique.length - next.length));
+    shownRefs = next.map((entry) => entry.ref);
+    hooks.onOverflow?.(built.hidden);
     if (reduced) render();
   }
 
@@ -407,7 +406,8 @@ export function mountDrum(canvas, hooks = {}) {
       if (release) {
         disposeBall(release.ball);
         const ref = release.ref;
-        if (shownRefs.includes(ref)) makeBall(ref, shownRefs.indexOf(ref));
+        const again = shownRefs.indexOf(ref);
+        if (again >= 0) makeBall({ ref, lines: release.ball.lineKey.split("\n") }, again);
         release = null;
       }
       hooks.onSettle?.();
@@ -421,6 +421,7 @@ export function mountDrum(canvas, hooks = {}) {
       if (release && ball === release.ball && (phase === "drop" || phase === "reveal")) continue;
       ball.group.position.copy(ball.body.position);
       ball.mesh.quaternion.copy(ball.body.quaternion);
+      ball.label.quaternion.copy(ball.mesh.quaternion).invert();
       const age = now - ball.appear;
       let scale = Math.min(1, age / 420);
       if (ball.removeAt) {

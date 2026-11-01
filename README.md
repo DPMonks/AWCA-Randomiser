@@ -14,6 +14,13 @@ Set these on the Vercel project. Do not put them in the browser, and do not comm
 | `ADMIN_PASSWORD` | Yes, to view members | Unlocks the member list. Draw Winner is the manual fallback if the 20:00 UK draw did not run. Checked only on the server. |
 | `CRON_SECRET` | Yes, for the automatic draw | Vercel sends `Authorization: Bearer` plus this secret to `/api/cron/draw`. The route returns 503 if it is missing. |
 | `ENTRY_REF_SECRET` | No | Secret for public entry references. If empty, `ADMIN_PASSWORD` is used. Do not change it after the first draw. |
+| `MANUAL_ENTRANTS_COLLECTION` | No | Wix CMS collection id for prepaid manual entrants. Defaults to `ManualEntrants`. |
+| `EMAIL_ENABLED` | No | Set to the exact word `true` on production before any real winner or committee mail is sent. Any other value sends nothing. |
+| `EMAIL_DRY_RUN` | No | Set to `true` to send only to `TEST_EMAIL_TO`, with `[TEST]` on the subject. Also the behaviour of every non-production deployment. |
+| `TEST_EMAIL_TO` | No | Inbox used for dry runs and non-production. If it is empty, those runs log a redacted note and do not call the mail provider. |
+| `EMAIL_FROM` | No | From address for Resend, for example `AWCA Lottery <lottery@alconbury-weald.org>`. The domain has to be verified in Resend. |
+| `RESEND_API_KEY` | No | Resend API key. Server only. |
+| `NOTIFY_COPY_EMAILS` | No | Comma separated committee copies. Defaults to `secretary@alconbury-weald.org,community-association@alconbury-weald.org`. |
 | `WIX_MOCK` | No | Set to `1` to show obviously fake sample members and skip Wix. Use this on a preview when credentials are not ready. |
 | `KV_REST_API_URL` | No | REST address for Vercel KV or Upstash Redis. Used to pause admin sign-in after repeated wrong passwords. `UPSTASH_REDIS_REST_URL` is also accepted. |
 | `KV_REST_API_TOKEN` | No | Token for that store. `UPSTASH_REDIS_REST_TOKEN` is also accepted. If the store is missing or down, admin sign-in still checks the password. |
@@ -75,6 +82,27 @@ Set `ENTRY_REF_SECRET` to a long random value and leave it in place. Changing th
 
 The admin member list shows one row per plan order. The full name is numbered for extra active entries, for example `Daniel Monks (2)`, beside that entry's reference. The admin draw result, and the official draw record on that same panel, show the full name with the same number when the winning entry had one. Those names are read live from the Members API. They are not written into the draw collection. The public page still shows initials and the entry reference only.
 
+## Prepaid manual entrants
+
+People who paid the old manual fee live in a Wix CMS collection. The id is `MANUAL_ENTRANTS_COLLECTION`, or `ManualEntrants` when that variable is empty. Create the collection in the Wix CMS with these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `email` | Text | The person's own email. This is private. It is never shown on the public page. |
+| `entriesPerDraw` | Number | How many entries they have in each draw they are still in. If the field is empty, they have 1. |
+| `lastDrawMonth` | Text | Last draw they are in, as `YYYY-MM`. `2026-12` means the November 2026 and December 2026 draws, then they stop before January 2027. |
+| `name` | Text | Optional. Used only for initials. Leave it empty if you do not have a name. Do not put an email address here. |
+
+Manual entries are included from the November 2026 draw onward, up to and including `lastDrawMonth`. Each one adds £1.25 to the pot, the same as an active plan order. A person who also has a plan order keeps both. Their manual entry code is separate from the plan entry code. Two CMS rows with the same email are one person: the entry counts add together while both rows still cover that month.
+
+The public page shows one drum ball per entry code, manual entries included. The code is the same shape as a plan entry (`4F7A2C` or `4F7A2C (2)`). The revealed winner is initials and the entry code when a name is stored, or the entry code on its own when it is not. Email addresses are not written on the balls.
+
+An empty collection is a successful read with no rows, and the draw carries on with plan orders only. If the collection is missing, or the read fails, the public page still shows plan orders and logs a short error with no addresses. A draw refuses in that case, so it cannot run while the manual list is silently missing.
+
+The end date on the committee member table is the last day of `lastDrawMonth`. The public balls do not show that date.
+
+The list and pot follow the next draw, which is 20:00 UK time on the 1st. During the 24 hour catch-up window they stay on the current month until that month's result is saved. The draw itself uses the London month of the moment it runs.
+
 ## Draw history
 
 Past draws are stored in a Wix CMS collection named `LotteryDraws`. Each row stores the member id, initials, entry reference, month, entry count, pot, the time of the draw, a fairness fingerprint, a hash of the sorted entry references, and the winner index in that sorted list. The winner's full name is not stored. The item id is the London month, for example `2026-10`, so each month can be saved only once. The server creates the collection on first use and adds any missing fingerprint fields to an existing collection. Read, insert, update, and remove are all limited to site admins. If an older `LotteryDraws` collection already exists from a previous version of this page, delete it in the Wix CMS so the server can recreate it without a name field.
@@ -111,6 +139,12 @@ The draw runs at 20:00 Europe/London on the 1st of every month. During British S
 
 The automatic draw, from cron and from a visit to the public page, runs only in the 24 hours after that instant. A late cron or a visitor on the morning of the 2nd can still catch the same month. After that window the month is left without an automatic draw. A later visit must not back-fill it, including when draw storage was offline on the 1st and only comes online mid-month. Draw Winner remains the manual fallback and can still save the current month if the committee chooses to.
 
+Only a production deployment (`VERCEL_ENV=production`) may run that draw or write the Wix draw collection. Preview deployments and `vercel dev` skip the draw and do not write history. Local tests with no `VERCEL_ENV` are unchanged. Mock mode never writes to Wix.
+
+On 1 November 2026 the clocks are on GMT, so 20:00 UK time is 20:00 UTC. The 19:00 UTC cron is before the draw and does not save one. The 20:00 UTC cron is the draw. The 21:00 and 22:00 UTC crons are catch-up if the 20:00 run did not save a result. A visit to the public page in the 24 hours after 20:00 UK time does the same draw if it is not saved yet. The saved Wix item id is `2026-11`. The public page then shows that month's winner.
+
+After a result is saved, the same routes can send the winner and committee mail. They do not draw again. Production sends nothing until `EMAIL_ENABLED` is exactly `true`. A failed send stays on the draw as mail status (hashes and times, not addresses) and is tried again on a later visit, cron call, or Draw Winner press. A send that was recorded is not repeated. See the mail section below.
+
 Vercel cron is scheduled in UTC and can run late on the Hobby plan. `vercel.json` calls `/api/cron/draw` at 19:00, 20:00, 21:00, and 22:00 UTC on day 1. The handler draws only inside that 24 hour window, and only when that month has no saved draw. A call before 20:00 UK time, or after the window has closed, returns 200 and does not draw. Set `CRON_SECRET`. Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
 
 `GET /api/state` runs the same draw if the month is due and no result is saved yet, so a late cron does not hold the result back. The public page counts down to the next 20:00 UK time. At that time it shows "Drawing now", polls `/api/state`, and plays the drum as soon as the saved result exists. Later visitors in the same month see the drum once.
@@ -120,6 +154,18 @@ Each month has one draw. The stored item id is the London month, for example `20
 Draw history goes through a small adapter with `list` and `insertIfAbsent`. The current adapter is the Wix CMS collection. It can be swapped later without changing the draw rules.
 
 In mock mode, a sample past result is always shown as initials and an entry reference. A new mock draw is also stored in an HttpOnly cookie so the same browser still shows it as Last Winner. Production draws are written to the Wix collection, which is the record that every visitor sees.
+
+## Winner mail
+
+The site does not already have a mail provider. Winner and committee notes are sent with [Resend](https://resend.com) when `RESEND_API_KEY` and `EMAIL_FROM` are set. Resend needs the sending domain verified (SPF and DKIM records for `alconbury-weald.org`). `EMAIL_FROM` should be an address on that domain.
+
+Three messages are sent for each draw: one to the winner, and one full copy each to the addresses in `NOTIFY_COPY_EMAILS`. The winner note says congratulations, the prize pot, the draw month, and their entry code, and that AWCA will be in touch. It does not list anyone else. Each committee copy includes the winner's name (or "Not recorded"), initials, email, entry code, pot, and draw month.
+
+The draw is saved before any mail is sent. Each recipient is claimed by inserting a row in the Wix collection `LotteryMailClaims`. The item id is the draw month, the role, a hash of the address, and `live` or `dry`. Wix insert fails when that id already exists, so only the caller whose insert succeeds sends. The row does not store the address. A sent claim is left in place. A failed send deletes that claim so the next try can insert it again. A dry-run claim does not block the live send. Older `LotteryDraws` items do not need a mail field. A missing `emailSent` value is ignored, and it is not treated as already sent.
+
+Non-production deployments, and any deployment with `EMAIL_DRY_RUN=true`, never use the real recipient addresses. They send only to `TEST_EMAIL_TO` and prefix the subject with `[TEST]`. If `TEST_EMAIL_TO` is empty they log a short note with the month and do not call Resend. Production with `EMAIL_ENABLED` unset, or set to anything other than `true`, saves the draw and sends no mail.
+
+Two callers at the same moment cannot both send the same recipient: the second insert fails because the id is already there. A second live email is still possible if Resend accepts the message and the process stops before the claim is marked sent, then two minutes later another run treats that claim as abandoned, deletes it, and sends again. A claim that is still fresh is left alone.
 
 ## Demo drum
 

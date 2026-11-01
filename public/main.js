@@ -335,7 +335,10 @@ function renderState(data) {
   }
   renderPastWinners(data.history, unavailable);
   if (!demoMode) {
-    syncDrum(data.entryRefs || []);
+    const drumEntries = Array.isArray(data.entryBalls) && data.entryBalls.length
+      ? data.entryBalls
+      : (data.entryRefs || []);
+    syncDrum(drumEntries);
     const nightly = currentMonthDraw(data.history);
     if (nightly) autoplayDraw(nightly);
   }
