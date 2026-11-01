@@ -459,8 +459,8 @@ test("the drum builds one ball per public entry code", async () => {
     const main = await readFile(new URL("../public/main.js", import.meta.url), "utf8");
     const rules = await readFile(new URL("../public/rules/index.html", import.meta.url), "utf8");
     assert.match(drum, /function setEntries\(refs\)/);
-    assert.match(drum, /entryBallLines\(ref\)/);
-    assert.match(main, /syncDrum\(data\.entryRefs \|\| \[\]\)/);
+    assert.match(drum, /ballEntries\(refs\)/);
+    assert.match(main, /data\.entryBalls/);
     assert.match(rules, /Some entries were prepaid under the previous manual system\. These entries are valid for each monthly draw up to the end date shown on the entry and then end automatically\./);
     const line = rules.split("\n").find((item) => item.includes("previous manual system"));
     assert.equal(line.includes("\u2013"), false);
