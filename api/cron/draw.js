@@ -11,7 +11,7 @@ export default asyncHandler(async (req, res) => {
   requireCron(req);
   const now = req.drawNow instanceof Date ? req.drawNow : new Date();
   const result = await ensureMonthlyDraw({ now, force: false });
-  if (result.status === "not-due") {
+  if (result.status === "not-due" || result.status === "blocked") {
     sendJson(res, 200, {
       ok: true,
       created: false,
